@@ -15,18 +15,20 @@ from .tanita_parser import parse_tanita_file, parse_tanita_csv
 
 bioscan_bp = Blueprint("bioscan", __name__)
 
+JWT_EXPIRES = timedelta(hours=12)
+
+
+def _jwt_secret():
+    """Lê o JWT_SECRET em tempo de execução — garante que a variável de ambiente está disponível."""
+    return os.environ.get("JWT_SECRET", "dev-only-change-in-prod")
+
 
 @bioscan_bp.get("/health")
 def health():
-    """Health check para Railway e monitoramento."""
     return jsonify({"status": "ok", "service": "bioscan-healthspan"})
 
 
 # ── JWT AUTH ──────────────────────────────────────────────────────────────
-
-JWT_SECRET  = os.environ.get("JWT_SECRET", "dev-only-change-in-prod")
-JWT_EXPIRES = timedelta(hours=12)
-
 
 def create_token(user: User) -> str:
     payload = {
@@ -34,7 +36,7 @@ def create_token(user: User) -> str:
         "role": user.role,
         "exp":  datetime.now(timezone.utc) + JWT_EXPIRES,
     }
-    return jwt.encode(payload, JWT_SECRET, algorithm="HS256")
+    return jwt.encode(payload, _jwt_secret(), algorithm="HS256")
 
 
 def require_auth(fn):
@@ -45,7 +47,7 @@ def require_auth(fn):
         if not auth.startswith("Bearer "):
             return jsonify({"error": "Token ausente"}), 401
         try:
-            payload = jwt.decode(auth[7:], JWT_SECRET, algorithms=["HS256"])
+            payload = jwt.decode(auth[7:], _jwt_secret(), algorithms=["HS256"])
         except jwt.ExpiredSignatureError:
             return jsonify({"error": "Token expirado"}), 401
         except jwt.InvalidTokenError:
@@ -76,10 +78,6 @@ def require_role(*roles):
 
 @bioscan_bp.post("/auth/login")
 def login():
-    """
-    POST /bioscan/auth/login
-    Body: { "email": "...", "password": "..." }
-    """
     data = request.get_json(silent=True) or {}
     user = User.query.filter_by(email=data.get("email", "").lower()).first()
 
@@ -95,7 +93,6 @@ def login():
 @bioscan_bp.post("/auth/register")
 @require_role("doctor")
 def register():
-    """Somente médicos podem criar novos usuários."""
     data = request.get_json(silent=True) or {}
     if User.query.filter_by(email=data.get("email", "").lower()).first():
         return jsonify({"error": "E-mail já cadastrado"}), 409
@@ -116,7 +113,6 @@ def register():
 @bioscan_bp.get("/patients")
 @require_role("doctor")
 def list_patients():
-    """Lista todos os pacientes com a última medição."""
     patients = Patient.query.order_by(Patient.name).all()
     return jsonify([p.to_dict() for p in patients])
 
@@ -124,10 +120,6 @@ def list_patients():
 @bioscan_bp.post("/patients")
 @require_role("doctor")
 def create_patient():
-    """
-    POST /bioscan/patients
-    Body: { "name", "birth_date" (YYYY-MM-DD), "sex", "height_cm", "tags", "notes" }
-    """
     data = request.get_json(silent=True) or {}
     if not data.get("name"):
         return jsonify({"error": "Nome obrigatório"}), 400
@@ -151,15 +143,9 @@ def create_patient():
 @bioscan_bp.get("/patients/<int:pid>")
 @require_auth
 def get_patient(pid):
-    """
-    Médico acessa qualquer paciente.
-    Paciente acessa somente o próprio perfil.
-    """
     p = db.get_or_404(Patient, pid)
-
     if g.user.role == "patient" and g.user.patient_id != pid:
         return jsonify({"error": "Acesso negado"}), 403
-
     return jsonify(p.to_dict(include_measurements=True))
 
 
@@ -197,9 +183,6 @@ def delete_patient(pid):
 @bioscan_bp.get("/patients/<int:pid>/measurements")
 @require_auth
 def list_measurements(pid):
-    """
-    GET /bioscan/patients/1/measurements?from=2025-01-01&to=2026-12-31
-    """
     if g.user.role == "patient" and g.user.patient_id != pid:
         return jsonify({"error": "Acesso negado"}), 403
 
@@ -219,7 +202,6 @@ def list_measurements(pid):
 @bioscan_bp.post("/patients/<int:pid>/measurements")
 @require_role("doctor")
 def add_measurement(pid):
-    """Inserção manual de uma medição (JSON)."""
     db.get_or_404(Patient, pid)
     data = request.get_json(silent=True) or {}
 
@@ -246,13 +228,6 @@ def delete_measurement(pid, mid):
 @bioscan_bp.post("/patients/<int:pid>/import-csv")
 @require_role("doctor")
 def import_csv(pid):
-    """
-    POST /bioscan/patients/1/import-csv
-    multipart/form-data  →  campo "csv"
-
-    Retorna lista das medições inseridas.
-    Ignora duplicatas pelo timestamp (measured_at).
-    """
     db.get_or_404(Patient, pid)
 
     if "csv" not in request.files:
@@ -268,8 +243,6 @@ def import_csv(pid):
 
     for row in rows:
         measured_at = row.pop("measured_at")
-
-        # Evita duplicata exata
         exists = Measurement.query.filter_by(
             patient_id=pid, measured_at=measured_at
         ).first()
@@ -295,12 +268,6 @@ def import_csv(pid):
 @bioscan_bp.post("/import-csv-raw")
 @require_role("doctor")
 def import_csv_raw():
-    """
-    Importa CSV sem paciente pré-definido.
-    Body: multipart com campo "csv" + "patient_id" (opcional).
-    Se patient_id não for enviado, cria novo paciente "Paciente sem nome".
-    Útil para fluxo rápido de importação.
-    """
     pid = request.form.get("patient_id")
 
     if "csv" not in request.files:
@@ -335,11 +302,6 @@ def import_csv_raw():
 @bioscan_bp.get("/patients/<int:pid>/summary")
 @require_auth
 def healthspan_summary(pid):
-    """
-    Retorna um resumo estruturado de healthspan para o paciente,
-    comparando primeira e última medição.
-    Útil para relatórios e para a LLM gerar interpretações.
-    """
     if g.user.role == "patient" and g.user.patient_id != pid:
         return jsonify({"error": "Acesso negado"}), 403
 
@@ -357,39 +319,31 @@ def healthspan_summary(pid):
         return round(b - a, 2)
 
     return jsonify({
-        "patient":       p.to_dict(),
+        "patient":        p.to_dict(),
         "n_measurements": len(p.measurements),
         "period": {
             "from": first.measured_at.isoformat(),
             "to":   last.measured_at.isoformat(),
         },
-        "latest":   last.to_dict(),
+        "latest":  last.to_dict(),
         "deltas": {
-            "weight":        delta("weight"),
-            "fat_pct":       delta("fat_pct"),
-            "muscle_kg":     delta("muscle_kg"),
-            "visceral":      delta("visceral"),
-            "meta_age":      delta("meta_age"),
-            "bmr":           delta("bmr"),
-            "water_pct":     delta("water_pct"),
+            "weight":    delta("weight"),
+            "fat_pct":   delta("fat_pct"),
+            "muscle_kg": delta("muscle_kg"),
+            "visceral":  delta("visceral"),
+            "meta_age":  delta("meta_age"),
+            "bmr":       delta("bmr"),
+            "water_pct": delta("water_pct"),
         },
-        # Flags de risco para uso na UI / LLM
         "risk_flags": _risk_flags(last, p),
     })
 
 
-# ── AI INTERPRETATION (Groq / LLM) ───────────────────────────────────────
+# ── AI INTERPRETATION ────────────────────────────────────────────────────
 
 @bioscan_bp.post("/patients/<int:pid>/interpret")
 @require_role("doctor")
 def interpret(pid):
-    """
-    Envia o summary do paciente para a LLM (Groq llama-3.3-70b)
-    e retorna uma interpretação clínica em linguagem natural.
-
-    Mantém o padrão do TriDash: usa a variável GROQ_API_KEY do ambiente.
-    """
-    import os
     from groq import Groq
 
     p = db.get_or_404(Patient, pid)
@@ -418,13 +372,13 @@ MEDIÇÃO MAIS RECENTE ({last.measured_at.strftime('%d/%m/%Y')}):
 - FC repouso: {last.heart_rate} bpm
 
 EVOLUÇÃO DESDE {first.measured_at.strftime('%d/%m/%Y')}:
-- Peso: {first.weight} → {last.weight} kg (Δ {round(last.weight - first.weight, 1) if first.weight else 'N/A'})
-- Gordura: {first.fat_pct} → {last.fat_pct}% 
+- Peso: {first.weight} → {last.weight} kg
+- Gordura: {first.fat_pct} → {last.fat_pct}%
 - Músculo: {first.muscle_kg} → {last.muscle_kg} kg
 - Visceral: {first.visceral} → {last.visceral}
 - Idade metabólica: {first.meta_age} → {last.meta_age} anos
 
-Por favor, interprete estes dados com foco em healthspan: qualidade de vida a longo prazo, risco metabólico, qualidade muscular e recomendações práticas."""
+Interprete com foco em healthspan: qualidade de vida a longo prazo, risco metabólico, qualidade muscular e recomendações práticas."""
 
     try:
         client = Groq(api_key=os.environ["GROQ_API_KEY"])
@@ -461,6 +415,7 @@ MEASUREMENT_FIELDS = [
     "seg_fat_left_leg", "seg_fat_trunk",
 ]
 
+
 def _fill_measurement(m: Measurement, data: dict):
     for f in MEASUREMENT_FIELDS:
         if f in data and data[f] is not None:
@@ -484,7 +439,6 @@ def _bulk_insert(pid: int, rows: list[dict]) -> list[Measurement]:
 
 
 def _risk_flags(m: Measurement, p: Patient) -> list[dict]:
-    """Gera lista de flags de risco para uso na UI e na LLM."""
     flags = []
     sex = p.sex or "M"
 
