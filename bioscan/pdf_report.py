@@ -120,6 +120,8 @@ def make_styles():
 
 def evolution_chart_png(measurements, attr, title, color, unit=""):
     """Retorna bytes PNG de um gráfico de evolução."""
+    from matplotlib.dates import DateFormatter, AutoDateLocator
+
     dates = [m.measured_at for m in measurements]
     values = [getattr(m, attr) for m in measurements]
 
@@ -128,7 +130,7 @@ def evolution_chart_png(measurements, attr, title, color, unit=""):
     if len(pairs) < 2:
         return None
 
-    fig = Figure(figsize=(4.5, 2.2), dpi=120)
+    fig = Figure(figsize=(4.8, 2.4), dpi=120)
     ax = fig.add_subplot(111)
 
     xs = [p[0] for p in pairs]
@@ -151,11 +153,15 @@ def evolution_chart_png(measurements, attr, title, color, unit=""):
     if unit:
         ax.set_ylabel(unit, fontsize=7, color="#666666")
 
-    fig.autofmt_xdate(rotation=0, ha="center")
+    # Sempre formato dd/mm no eixo X, independente do intervalo
+    ax.xaxis.set_major_formatter(DateFormatter("%d/%m"))
+    ax.xaxis.set_major_locator(AutoDateLocator(minticks=2, maxticks=6))
+
     fig.tight_layout()
 
     buf = io.BytesIO()
-    fig.savefig(buf, format="png", bbox_inches="tight", facecolor="white")
+    fig.savefig(buf, format="png", bbox_inches="tight", facecolor="white",
+                pad_inches=0.15)
     plt.close(fig)
     buf.seek(0)
     return buf.getvalue()
@@ -292,9 +298,14 @@ def history_table(measurements, styles):
     rows = [["Data", "Peso (kg)", "Gordura (%)", "Músculo (kg)",
              "Visceral", "Id. met.", "BMR"]]
 
+    # Se há mais de uma medição no mesmo dia, inclui hora para distinguir
+    dates = [m.measured_at.date() for m in measurements]
+    has_same_day = len(dates) != len(set(dates))
+    date_fmt = "%d/%m/%Y %H:%M" if has_same_day else "%d/%m/%Y"
+
     for m in reversed(measurements):
         rows.append([
-            m.measured_at.strftime("%d/%m/%Y"),
+            m.measured_at.strftime(date_fmt),
             f"{m.weight:.1f}" if m.weight else "—",
             f"{m.fat_pct:.1f}" if m.fat_pct else "—",
             f"{m.muscle_kg:.2f}" if m.muscle_kg else "—",
@@ -303,7 +314,8 @@ def history_table(measurements, styles):
             f"{m.bmr:.0f}" if m.bmr else "—",
         ])
 
-    t = Table(rows, colWidths=[2.6 * cm, 2.1 * cm, 2.3 * cm, 2.4 * cm,
+    data_col_w = 3.4 * cm if has_same_day else 2.6 * cm
+    t = Table(rows, colWidths=[data_col_w, 2.1 * cm, 2.3 * cm, 2.4 * cm,
                                2 * cm, 2 * cm, 2 * cm])
     t.setStyle(TableStyle([
         ("FONT", (0, 0), (-1, 0), "Helvetica-Bold", 7.5),
@@ -320,33 +332,48 @@ def history_table(measurements, styles):
 
 # ── TABELA DE ALERTAS CLÍNICOS ───────────────────────────────────────────
 
+FIELD_LABELS = {
+    "fat_pct":   "Gordura corporal",
+    "visceral":  "Gordura visceral",
+    "meta_age":  "Idade metabólica",
+    "bmi":       "IMC",
+    "weight":    "Peso",
+    "muscle_kg": "Massa muscular",
+    "water_pct": "Água corporal",
+    "bone_kg":   "Massa óssea",
+    "bmr":       "Metabolismo basal",
+}
+
+
 def flags_table(flags, styles):
     if not flags:
         return Paragraph("Nenhum alerta clínico identificado.", styles["body"])
 
-    rows = [["Parâmetro", "Nível", "Observação"]]
+    rows = [["Parâmetro", "Observação"]]
     bg_colors = []
 
     for f in flags:
-        level = f["level"]
-        label = "ATENÇÃO" if level == "warn" else "ALERTA"
-        rows.append([f["field"].upper(), label, f["message"]])
-        bg_colors.append(COLOR_WARN_BG if level == "warn" else COLOR_ALERT_BG)
+        label = FIELD_LABELS.get(f["field"], f["field"].replace("_", " ").capitalize())
+        rows.append([label, f["message"]])
+        bg_colors.append(
+            COLOR_WARN_BG if f["level"] == "warn" else COLOR_ALERT_BG
+        )
 
-    t = Table(rows, colWidths=[3 * cm, 2.5 * cm, 10.7 * cm])
+    t = Table(rows, colWidths=[4.5 * cm, 11.7 * cm])
     style = [
         ("FONT", (0, 0), (-1, 0), "Helvetica-Bold", 8),
         ("FONT", (0, 1), (-1, -1), "Helvetica", 8),
         ("BACKGROUND", (0, 0), (-1, 0), COLOR_LIGHT),
-        ("ALIGN", (0, 0), (1, -1), "LEFT"),
+        ("ALIGN", (0, 0), (-1, -1), "LEFT"),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
         ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("LEFTPADDING", (0, 0), (-1, -1), 8),
         ("GRID", (0, 0), (-1, -1), 0.25, COLOR_BORDER),
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
     ]
 
     for i, bg in enumerate(bg_colors, start=1):
-        style.append(("BACKGROUND", (0, i), (1, i), bg))
+        style.append(("BACKGROUND", (0, i), (-1, i), bg))
 
     t.setStyle(TableStyle(style))
     return t
@@ -422,12 +449,16 @@ def generate_pdf(patient, measurements, risk_flags) -> bytes:
     last = measurements[-1]
     first = measurements[0]
 
+    # Formato do período — inclui hora quando primeira e última medição são no mesmo dia
+    same_day = first.measured_at.date() == last.measured_at.date()
+    date_fmt = "%d/%m/%Y %H:%M" if same_day else "%d/%m/%Y"
+
     story.append(Paragraph("Resumo da última avaliação", styles["h2"]))
     story.append(Paragraph(
-        f"Medição de {last.measured_at.strftime('%d/%m/%Y')} · "
+        f"Medição de {last.measured_at.strftime(date_fmt)} · "
         f"{len(measurements)} medição(ões) no histórico · "
-        f"período acompanhado: {first.measured_at.strftime('%d/%m/%Y')} → "
-        f"{last.measured_at.strftime('%d/%m/%Y')}",
+        f"período acompanhado: {first.measured_at.strftime(date_fmt)} → "
+        f"{last.measured_at.strftime(date_fmt)}",
         styles["small"]
     ))
     story.append(Spacer(1, 6))
@@ -517,7 +548,7 @@ def generate_pdf(patient, measurements, risk_flags) -> bytes:
             png = evolution_chart_png(measurements, attr, title, color, unit)
             if png:
                 chart_imgs.append(
-                    Image(io.BytesIO(png), width=8 * cm, height=4 * cm)
+                    Image(io.BytesIO(png), width=8.2 * cm, height=4.3 * cm)
                 )
 
         # Organiza em tabela 2 colunas
