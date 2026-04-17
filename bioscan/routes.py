@@ -50,7 +50,7 @@ def debug_validate():
 
 def create_token(user: User) -> str:
     payload = {
-        "sub":  user.id,
+        "sub":  str(user.id),  # PyJWT >= 2.8 exige string
         "role": user.role,
         "exp":  datetime.now(timezone.utc) + JWT_EXPIRES,
     }
@@ -71,7 +71,7 @@ def require_auth(fn):
         except jwt.InvalidTokenError:
             return jsonify({"error": "Token inválido"}), 401
 
-        user = db.session.get(User, payload["sub"])
+        user = db.session.get(User, int(payload["sub"]))  # sub é string, converte para int
         if not user or not user.is_active:
             return jsonify({"error": "Usuário não encontrado"}), 401
         g.user = user
