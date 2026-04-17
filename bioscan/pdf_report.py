@@ -410,7 +410,7 @@ def generate_pdf(patient, measurements, risk_flags) -> bytes:
         sex_label,
         f"{patient.height_cm:.0f} cm" if patient.height_cm else "Altura não informada",
     ]
-    if patient.cpf:
+    if getattr(patient, "cpf", None):
         subtitle_parts.append(f"CPF {patient.cpf}")
     story.append(Paragraph(" · ".join(subtitle_parts), styles["subtitle"]))
 
@@ -544,7 +544,7 @@ def generate_pdf(patient, measurements, risk_flags) -> bytes:
     story.append(history_table(measurements, styles))
 
     # ── OBSERVAÇÕES ──
-    if patient.notes:
+    if getattr(patient, "notes", None):
         story.append(Paragraph("Observações clínicas", styles["h2"]))
         story.append(Paragraph(patient.notes, styles["body"]))
 

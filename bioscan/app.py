@@ -16,6 +16,7 @@ def init_bioscan(app: Flask):
     app.register_blueprint(bioscan_bp, url_prefix="/bioscan")
     with app.app_context():
         db.create_all()
+        _migrate_schema()
     return app
 
 
@@ -48,9 +49,51 @@ def create_app() -> Flask:
 
     with app.app_context():
         db.create_all()
+        _migrate_schema()
         _seed_demo()
 
     return app
+
+
+def _migrate_schema():
+    """
+    Migração leve: adiciona colunas novas à tabela patients caso não existam.
+    Usado para rodar de forma transparente quando o schema é atualizado.
+    """
+    from sqlalchemy import text, inspect
+
+    inspector = inspect(db.engine)
+    if "patients" not in inspector.get_table_names():
+        return
+
+    existing_cols = {col["name"] for col in inspector.get_columns("patients")}
+    alters = []
+
+    if "cpf" not in existing_cols:
+        alters.append("ADD COLUMN cpf VARCHAR(14)")
+    if "phone" not in existing_cols:
+        alters.append("ADD COLUMN phone VARCHAR(20)")
+
+    if alters:
+        # Executa cada alteração em transação própria
+        with db.engine.begin() as conn:
+            for alter in alters:
+                try:
+                    conn.execute(text(f"ALTER TABLE patients {alter}"))
+                    print(f"[BioScan] Migração: patients {alter}")
+                except Exception as e:
+                    print(f"[BioScan] Migração falhou ({alter}): {e}")
+
+        # Tenta criar índice único para CPF (ignora se já existe)
+        if "cpf" in [a.split()[2] for a in alters]:
+            try:
+                with db.engine.begin() as conn:
+                    conn.execute(text(
+                        "CREATE UNIQUE INDEX IF NOT EXISTS ix_patients_cpf ON patients(cpf)"
+                    ))
+                print("[BioScan] Migração: índice único patients.cpf criado")
+            except Exception as e:
+                print(f"[BioScan] Índice cpf falhou: {e}")
 
 
 def _seed_demo():
