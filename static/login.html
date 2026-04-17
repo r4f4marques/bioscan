@@ -9,16 +9,19 @@
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f5f4f0;min-height:100vh;display:flex;align-items:center;justify-content:center;color:#1a1a18}
 .card{background:#fff;border:1px solid rgba(0,0,0,0.08);border-radius:16px;padding:2.5rem 2rem;width:100%;max-width:380px;box-shadow:0 2px 12px rgba(0,0,0,0.06)}
 .logo{font-size:20px;font-weight:600;margin-bottom:4px;letter-spacing:-0.3px}
-.logo span{font-weight:400;color:#888}
-.sub{font-size:13px;color:#888;margin-bottom:2rem}
+.logo span{font-weight:400;color:#bbb}
+.sub{font-size:13px;color:#999;margin-bottom:2rem}
+.toggle{display:flex;gap:0;margin-bottom:1.5rem;border:1px solid #eee;border-radius:8px;overflow:hidden}
+.toggle-btn{flex:1;padding:7px;font-size:12px;cursor:pointer;border:none;background:#f5f4f0;color:#999;transition:all .15s}
+.toggle-btn.active{background:#1a1a18;color:#fff;font-weight:500}
 label{display:block;font-size:12px;color:#666;margin-bottom:4px;margin-top:12px}
 input{width:100%;padding:9px 12px;border:1px solid #ddd;border-radius:8px;font-size:14px;color:#1a1a18;background:#fff;transition:border-color .15s}
 input:focus{outline:none;border-color:#555}
 .btn{width:100%;padding:10px;background:#1a1a18;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:500;cursor:pointer;margin-top:1.5rem;transition:opacity .15s}
 .btn:hover{opacity:.85}
 .btn:disabled{opacity:.5;cursor:not-allowed}
-.error{font-size:12px;color:#c0392b;background:#fdf0ee;padding:8px 12px;border-radius:6px;margin-top:12px;display:none}
-.hint{font-size:11px;color:#aaa;text-align:center;margin-top:1rem}
+.error{font-size:12px;color:#c0392b;background:#fde8e8;padding:8px 12px;border-radius:6px;margin-top:12px;display:none}
+.hint{font-size:11px;color:#ccc;text-align:center;margin-top:1rem}
 </style>
 </head>
 <body>
@@ -26,35 +29,63 @@ input:focus{outline:none;border-color:#555}
   <div class="logo">BioScan <span>Healthspan</span></div>
   <div class="sub">Plataforma de análise de bioimpedância</div>
 
+  <div class="toggle">
+    <button class="toggle-btn active" id="btn-doctor" onclick="setMode('doctor')">Médico</button>
+    <button class="toggle-btn" id="btn-patient" onclick="setMode('patient')">Paciente</button>
+  </div>
+
   <label>E-mail</label>
-  <input type="email" id="email" placeholder="seu@email.com" value="demo@bioscan.fit">
+  <input type="email" id="email" placeholder="seu@email.com">
 
-  <label>Senha</label>
-  <input type="password" id="password" placeholder="••••••••" value="demo">
+  <div id="field-password">
+    <label>Senha</label>
+    <input type="password" id="password" placeholder="••••••••">
+  </div>
 
-  <button class="btn" id="btn" onclick="login()">Entrar</button>
+  <div id="field-birth" style="display:none">
+    <label>Data de nascimento</label>
+    <input type="date" id="birth_date">
+  </div>
+
+  <button class="btn" id="btn-login" onclick="login()">Entrar</button>
   <div class="error" id="error"></div>
-  <div class="hint">Demo: demo@bioscan.fit / demo</div>
+  <div class="hint" id="hint">Demo médico: demo@bioscan.fit / demo</div>
 </div>
 
 <script>
-const API = '';
+let mode = 'doctor';
+
+function setMode(m) {
+  mode = m;
+  document.getElementById('btn-doctor').classList.toggle('active', m === 'doctor');
+  document.getElementById('btn-patient').classList.toggle('active', m === 'patient');
+  document.getElementById('field-password').style.display = m === 'doctor' ? 'block' : 'none';
+  document.getElementById('field-birth').style.display = m === 'patient' ? 'block' : 'none';
+  document.getElementById('hint').textContent = m === 'doctor'
+    ? 'Demo médico: demo@bioscan.fit / demo'
+    : 'Pacientes usam email + data de nascimento';
+  document.getElementById('error').style.display = 'none';
+}
 
 async function login() {
-  const btn = document.getElementById('btn');
+  const btn = document.getElementById('btn-login');
   const err = document.getElementById('error');
   err.style.display = 'none';
   btn.disabled = true;
   btn.textContent = 'Entrando...';
 
+  const body = { email: document.getElementById('email').value };
+  if (mode === 'doctor') {
+    body.password = document.getElementById('password').value;
+  } else {
+    body.birth_date = document.getElementById('birth_date').value;
+  }
+
   try {
-    const res = await fetch(API + '/bioscan/auth/login', {
+    const res = await fetch('/bioscan/auth/login', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({
-        email: document.getElementById('email').value,
-        password: document.getElementById('password').value
-      })
+      body: JSON.stringify(body)
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Erro ao fazer login');
