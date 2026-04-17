@@ -206,7 +206,7 @@ function showPatient(p) {
   document.getElementById('topbar-title').textContent = p.name;
   document.getElementById('topbar-actions').innerHTML =
     '<button class="btn" onclick="showScreen(\'list\')">← Voltar</button> ' +
-    (isDoctor ? '<button class="btn" onclick="editPatient()">✎ Editar cadastro</button>' : '');
+    (isDoctor ? '<button class="btn" onclick="editPatient()">✎ Editar cadastro</button> <button class="btn" onclick="showAuditLog()">📋 Histórico de ações</button>' : '');
   showTab('overview');
 }
 
@@ -217,6 +217,122 @@ function editPatient() {
   document.getElementById('topbar-actions').innerHTML =
     `<button class="btn" onclick="selectPatient(${currentPatient.id})">← Voltar para paciente</button>`;
   renderPatientForm(currentPatient);
+}
+
+async function showAuditLog() {
+  destroyCharts();
+  setNav(null);
+  document.getElementById('topbar-title').textContent = 'Histórico de ações — ' + currentPatient.name;
+  document.getElementById('topbar-actions').innerHTML =
+    `<button class="btn" onclick="selectPatient(${currentPatient.id})">← Voltar para paciente</button>`;
+  document.getElementById('content').innerHTML = '<div class="loading">Carregando histórico...</div>';
+
+  const logs = await api('GET', `/bioscan/patients/${currentPatient.id}/audit-logs`);
+  if (!logs) return;
+
+  renderAuditLog(logs);
+}
+
+function renderAuditLog(logs) {
+  if (!logs.length) {
+    document.getElementById('content').innerHTML = `
+      <div style="text-align:center;padding:3rem;color:#bbb">
+        <div style="font-size:28px;margin-bottom:1rem">📋</div>
+        <div style="font-size:14px">Nenhuma ação registrada para este paciente ainda.</div>
+        <div style="font-size:12px;color:#ccc;margin-top:.5rem">O registro começa a partir da próxima ação (criar, editar, importar, excluir).</div>
+      </div>`;
+    return;
+  }
+
+  // Ícone e rótulo legível para cada tipo de ação
+  const actionMeta = {
+    'patient.create':          { icon: '✚',  label: 'Paciente cadastrado',     color: '#2d6a1f' },
+    'patient.update':          { icon: '✎',  label: 'Cadastro editado',        color: '#1a6fa8' },
+    'patient.delete':          { icon: '🗑',  label: 'Paciente excluído',       color: '#c0392b' },
+    'measurement.create':      { icon: '➕',  label: 'Medição adicionada',      color: '#2d6a1f' },
+    'measurement.delete':      { icon: '✕',  label: 'Medição excluída',        color: '#c0392b' },
+    'measurement.import_csv':  { icon: '📄', label: 'CSV importado',           color: '#1a6fa8' },
+    'measurement.import_pdf':  { icon: '📑', label: 'PDF importado',           color: '#16a085' },
+  };
+
+  const formatDate = (iso) => {
+    const d = new Date(iso);
+    return d.toLocaleString('pt-BR', {
+      day: '2-digit', month: '2-digit', year: 'numeric',
+      hour: '2-digit', minute: '2-digit'
+    });
+  };
+
+  const formatDetails = (action, details) => {
+    if (!details) return '';
+
+    // Renderização customizada por tipo de ação
+    if (action === 'patient.update' && details.changes) {
+      const changes = Object.entries(details.changes).map(([field, vals]) => {
+        const fmt = (v) => v == null || v === '' ? '(vazio)' : v;
+        return `<div style="margin-top:4px"><strong>${field}:</strong> ${fmt(vals.from)} → ${fmt(vals.to)}</div>`;
+      }).join('');
+      return `<div style="font-size:12px;color:#666;margin-top:6px">${changes}</div>`;
+    }
+
+    if (action === 'patient.delete') {
+      return `<div style="font-size:12px;color:#666;margin-top:6px">
+        ${details.name || ''} ${details.cpf ? '· ' + details.cpf : ''}
+        ${details.measurements_count ? ' · ' + details.measurements_count + ' medição(ões) removida(s)' : ''}
+      </div>`;
+    }
+
+    if (action === 'measurement.delete') {
+      const dt = details.measured_at ? new Date(details.measured_at).toLocaleDateString('pt-BR') : '';
+      return `<div style="font-size:12px;color:#666;margin-top:6px">
+        Medição de ${dt} (${details.source || '—'})
+        ${details.weight ? ' · Peso ' + details.weight + 'kg' : ''}
+        ${details.fat_pct ? ' · ' + details.fat_pct + '% gordura' : ''}
+      </div>`;
+    }
+
+    if (action === 'measurement.import_pdf') {
+      return `<div style="font-size:12px;color:#666;margin-top:6px">
+        Fabricante: ${details.manufacturer || '—'}
+        ${details.detected_name ? ' · Nome no PDF: ' + details.detected_name : ''}
+      </div>`;
+    }
+
+    if (action === 'measurement.import_csv') {
+      return `<div style="font-size:12px;color:#666;margin-top:6px">
+        ${details.inserted || 0} inserida(s)${details.skipped ? ', ' + details.skipped + ' duplicata(s) ignorada(s)' : ''}
+      </div>`;
+    }
+
+    // Fallback: mostra JSON compacto
+    return `<div style="font-size:11px;color:#999;margin-top:6px;font-family:monospace">${JSON.stringify(details)}</div>`;
+  };
+
+  const rows = logs.map(log => {
+    const meta = actionMeta[log.action] || { icon: '•', label: log.action, color: '#666' };
+    return `
+      <div style="padding:1rem;border-bottom:1px solid #f0f0f0">
+        <div style="display:flex;align-items:flex-start;gap:12px">
+          <div style="font-size:16px;color:${meta.color};width:24px;text-align:center">${meta.icon}</div>
+          <div style="flex:1">
+            <div style="font-size:13px;font-weight:500;color:#1a1a18">${meta.label}</div>
+            <div style="font-size:12px;color:#999;margin-top:2px">
+              ${formatDate(log.timestamp)} · por <strong>${log.user_name || log.user_email || '—'}</strong>
+            </div>
+            ${formatDetails(log.action, log.details)}
+          </div>
+        </div>
+      </div>`;
+  }).join('');
+
+  document.getElementById('content').innerHTML = `
+    <div class="card" style="padding:0">
+      <div style="padding:1rem;border-bottom:1px solid #f0f0f0">
+        <div class="card-title" style="margin:0">Histórico de ações (${logs.length})</div>
+        <div style="font-size:12px;color:#999;margin-top:4px">Últimas 200 ações registradas para este paciente.</div>
+      </div>
+      ${rows}
+    </div>`;
 }
 
 function showTab(tab) {
