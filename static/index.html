@@ -492,6 +492,80 @@ async function savePatient(id) {
 }
 
 // ── OVERVIEW ──────────────────────────────────────────────────────────────
+
+// Card secundário dinâmico: mostra 4 campos mais relevantes disponíveis
+function renderSecondaryCards(m) {
+  const fmt = (v, dec = 1) => v == null ? '—' : v.toFixed(dec);
+  const fmtInt = (v) => v == null ? '—' : Math.round(v);
+
+  // Lista de candidatos em ordem de prioridade; filtramos os que têm valor
+  const candidates = [
+    m.water_pct != null && {
+      label: 'Água corporal',
+      val: fmt(m.water_pct, 1), unit: '%'
+    },
+    m.bmr != null && {
+      label: 'Metabolismo basal',
+      val: fmt(m.bmr, 0), unit: 'kcal'
+    },
+    m.inbody_score != null && {
+      label: 'Pontuação InBody',
+      val: fmtInt(m.inbody_score), unit: '/100'
+    },
+    m.smi != null && {
+      label: 'SMI',
+      val: fmt(m.smi, 2), unit: 'kg/m²',
+      sub: 'Índice de massa esquelética'
+    },
+    m.waist_hip_ratio != null && {
+      label: 'Cintura/quadril',
+      val: fmt(m.waist_hip_ratio, 2), unit: ''
+    },
+    m.obesity_degree != null && {
+      label: 'Grau de obesidade',
+      val: fmtInt(m.obesity_degree), unit: '%'
+    },
+    m.ffm_kg != null && {
+      label: 'Massa livre de gordura',
+      val: fmt(m.ffm_kg, 1), unit: 'kg'
+    },
+    m.protein_kg != null && {
+      label: 'Proteína',
+      val: fmt(m.protein_kg, 2), unit: 'kg'
+    },
+    m.mineral_kg != null && {
+      label: 'Minerais',
+      val: fmt(m.mineral_kg, 2), unit: 'kg'
+    },
+    m.bone_kg != null && {
+      label: 'Massa óssea',
+      val: fmt(m.bone_kg, 2), unit: 'kg'
+    },
+    m.recommended_kcal != null && {
+      label: 'Ingestão recomendada',
+      val: fmtInt(m.recommended_kcal), unit: 'kcal'
+    },
+    m.heart_rate != null && m.heart_rate > 0 && {
+      label: 'FC repouso',
+      val: m.heart_rate, unit: 'bpm'
+    },
+  ].filter(Boolean);
+
+  // Pega os 4 primeiros disponíveis
+  const top4 = candidates.slice(0, 4);
+
+  if (!top4.length) {
+    return '<div class="mcard" style="grid-column:span 4;color:#bbb;text-align:center">Sem dados adicionais</div>';
+  }
+
+  return top4.map(c => `
+    <div class="mcard">
+      <div class="mcard-label">${c.label}</div>
+      <div class="mcard-val">${c.val}<span class="mcard-unit">${c.unit}</span></div>
+      ${c.sub ? `<div class="mcard-sub">${c.sub}</div>` : ''}
+    </div>`).join('');
+}
+
 function renderOverview() {
   const p = currentPatient;
   const ms = p.measurements || [];
@@ -512,16 +586,13 @@ function renderOverview() {
 
   document.getElementById('content').innerHTML = `
     <div class="grid grid-4">
-      <div class="mcard"><div class="mcard-label">Peso</div><div class="mcard-val">${m.weight?.toFixed(1)}<span class="mcard-unit">kg</span></div><div class="mcard-sub">IMC ${m.bmi?.toFixed(1)} · <span class="badge ${bmiStatus(m.bmi)}">${bl(bmiStatus(m.bmi))}</span></div></div>
-      <div class="mcard"><div class="mcard-label">Gordura corporal</div><div class="mcard-val">${m.fat_pct?.toFixed(1)}<span class="mcard-unit">%</span></div><span class="badge ${fatStatus(m.fat_pct, p.sex)}">${bl(fatStatus(m.fat_pct, p.sex))}</span></div>
-      <div class="mcard"><div class="mcard-label">Massa muscular</div><div class="mcard-val">${m.muscle_kg?.toFixed(1)}<span class="mcard-unit">kg</span></div><div class="mcard-sub">Qualidade: ${m.muscle_quality || '—'}</div></div>
-      <div class="mcard"><div class="mcard-label">Visceral</div><div class="mcard-val">${m.visceral}</div><span class="badge ${viscStatus(m.visceral)}">${bl(viscStatus(m.visceral))}</span></div>
+      <div class="mcard"><div class="mcard-label">Peso</div><div class="mcard-val">${m.weight?.toFixed(1) ?? '—'}<span class="mcard-unit">kg</span></div><div class="mcard-sub">IMC ${m.bmi?.toFixed(1) ?? '—'}${m.bmi ? ' · <span class="badge ' + bmiStatus(m.bmi) + '">' + bl(bmiStatus(m.bmi)) + '</span>' : ''}</div></div>
+      <div class="mcard"><div class="mcard-label">Gordura corporal</div><div class="mcard-val">${m.fat_pct?.toFixed(1) ?? '—'}<span class="mcard-unit">%</span></div>${m.fat_pct != null ? '<span class="badge ' + fatStatus(m.fat_pct, p.sex) + '">' + bl(fatStatus(m.fat_pct, p.sex)) + '</span>' : ''}</div>
+      <div class="mcard"><div class="mcard-label">Massa muscular</div><div class="mcard-val">${m.muscle_kg?.toFixed(1) ?? '—'}<span class="mcard-unit">kg</span></div><div class="mcard-sub">Qualidade: ${m.muscle_quality ?? '—'}</div></div>
+      <div class="mcard"><div class="mcard-label">Visceral</div><div class="mcard-val">${m.visceral ?? '—'}</div>${m.visceral != null ? '<span class="badge ' + viscStatus(m.visceral) + '">' + bl(viscStatus(m.visceral)) + '</span>' : ''}</div>
     </div>
     <div class="grid grid-4">
-      <div class="mcard"><div class="mcard-label">Água corporal</div><div class="mcard-val">${m.water_pct?.toFixed(1)}<span class="mcard-unit">%</span></div></div>
-      <div class="mcard"><div class="mcard-label">Massa óssea</div><div class="mcard-val">${m.bone_kg?.toFixed(2)}<span class="mcard-unit">kg</span></div></div>
-      <div class="mcard"><div class="mcard-label">Metabolismo basal</div><div class="mcard-val">${m.bmr?.toFixed(0)}<span class="mcard-unit">kcal</span></div></div>
-      <div class="mcard"><div class="mcard-label">FC repouso</div><div class="mcard-val">${m.heart_rate || '—'}${m.heart_rate ? '<span class="mcard-unit">bpm</span>' : ''}</div></div>
+      ${renderSecondaryCards(m)}
     </div>
     <div class="grid grid-2">
       <div class="card">
@@ -621,13 +692,13 @@ function renderEvolution() {
   }
 
   const rows = [...ms].reverse().map(m => `<tr>
-    <td>${m.measured_at?.substring(0,10)}</td>
-    <td>${m.weight?.toFixed(1)} kg</td>
-    <td><span class="badge ${fatStatus(m.fat_pct, currentPatient.sex)}">${m.fat_pct?.toFixed(1)}%</span></td>
-    <td>${m.muscle_kg?.toFixed(2)} kg</td>
-    <td><span class="badge ${viscStatus(m.visceral)}">${m.visceral}</span></td>
-    <td>${m.meta_age ? m.meta_age + ' anos' : '—'}</td>
-    <td>${m.bmr?.toFixed(0)} kcal</td>
+    <td>${m.measured_at?.substring(0,10) ?? '—'}</td>
+    <td>${m.weight != null ? m.weight.toFixed(1) + ' kg' : '—'}</td>
+    <td>${m.fat_pct != null ? `<span class="badge ${fatStatus(m.fat_pct, currentPatient.sex)}">${m.fat_pct.toFixed(1)}%</span>` : '—'}</td>
+    <td>${m.muscle_kg != null ? m.muscle_kg.toFixed(2) + ' kg' : '—'}</td>
+    <td>${m.visceral != null ? `<span class="badge ${viscStatus(m.visceral)}">${m.visceral}</span>` : '—'}</td>
+    <td>${m.meta_age != null ? m.meta_age + ' anos' : '—'}</td>
+    <td>${m.bmr != null ? m.bmr.toFixed(0) + ' kcal' : '—'}</td>
   </tr>`).join('');
 
   const chartCards = ms.length >= 2 ? `
@@ -779,9 +850,19 @@ function renderBodyDual(m) {
   const renderCol = (title, data, colorFn, textFn, fmtFn, unit, legend) => {
     const segsHtml = Object.keys(segPositions).map(key => {
       const val = data[key];
-      return `<div class="sil-seg" style="${segPositions[key].style};background:${colorFn(val)};color:${textFn(val)}">
-        <div class="sil-seg-name">${segLabels[key]}</div>
-        <div class="sil-seg-val">${fmtFn(val)}${unit}</div>
+      const isEmpty = val == null;
+      const styleExtra = isEmpty
+        ? 'border:1.5px dashed #ccc;background:transparent !important;opacity:0.6'
+        : '';
+      const nameText = isEmpty
+        ? segLabels[key]
+        : segLabels[key];
+      const valText = isEmpty
+        ? '<span style="font-style:italic;color:#999;font-size:10px">não detectado</span>'
+        : `${fmtFn(val)}${unit}`;
+      return `<div class="sil-seg" style="${segPositions[key].style};background:${colorFn(val)};color:${textFn(val)};${styleExtra}">
+        <div class="sil-seg-name">${nameText}</div>
+        <div class="sil-seg-val">${valText}</div>
       </div>`;
     }).join('');
 
