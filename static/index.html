@@ -6,96 +6,215 @@
 <title>BioScan Healthspan</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
+/* ── DESIGN TOKENS ──────────────────────────────────────────────────── */
+:root {
+  /* Typography scale */
+  --fs-xs:   12px;
+  --fs-sm:   14px;
+  --fs-base: 16px;
+  --fs-lg:   18px;
+  --fs-xl:   22px;
+  --fs-2xl:  28px;
+  --fs-3xl:  40px;
+
+  /* Semantic colors */
+  --c-bg:        #f5f4f0;
+  --c-card:      #fff;
+  --c-text:      #1a1a18;
+  --c-text-sub:  #666;
+  --c-text-mute: #999;
+  --c-text-soft: #bbb;
+  --c-border:    rgba(0,0,0,0.08);
+  --c-hover:     #fafaf8;
+
+  /* Spacing */
+  --sidebar-w: 260px;
+}
+
+/* ── BASE ────────────────────────────────────────────────────────────── */
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f5f4f0;color:#1a1a18;font-size:14px}
-.sidebar{width:210px;background:#fff;border-right:1px solid rgba(0,0,0,0.08);position:fixed;top:0;left:0;height:100vh;display:flex;flex-direction:column;z-index:10}
-.logo{padding:1.1rem 1rem;font-size:15px;font-weight:600;border-bottom:1px solid rgba(0,0,0,0.06);letter-spacing:-0.3px}
-.logo span{font-weight:400;color:#bbb}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--c-bg);color:var(--c-text);font-size:var(--fs-base);line-height:1.5}
+
+/* ── SIDEBAR ─────────────────────────────────────────────────────────── */
+.sidebar{width:var(--sidebar-w);background:var(--c-card);border-right:1px solid var(--c-border);position:fixed;top:0;left:0;height:100vh;display:flex;flex-direction:column;z-index:10;transition:transform .2s}
+.logo{padding:1.4rem 1.25rem;font-size:var(--fs-lg);font-weight:600;border-bottom:1px solid var(--c-border);letter-spacing:-0.3px}
+.logo span{font-weight:400;color:var(--c-text-soft)}
 .nav{flex:1;padding:.5rem 0;overflow-y:auto}
-.nav-section{font-size:10px;color:#bbb;padding:.75rem 1rem .2rem;text-transform:uppercase;letter-spacing:.06em}
-.nav-item{display:flex;align-items:center;gap:8px;padding:7px 1rem;cursor:pointer;font-size:13px;color:#666;transition:all .1s}
-.nav-item:hover,.nav-item.active{background:#f5f4f0;color:#1a1a18}
+.nav-section{font-size:var(--fs-xs);color:var(--c-text-soft);padding:1rem 1.25rem .4rem;text-transform:uppercase;letter-spacing:.06em;font-weight:500}
+.nav-item{display:flex;align-items:center;gap:8px;padding:12px 1.25rem;cursor:pointer;font-size:var(--fs-sm);color:var(--c-text-sub);transition:all .1s}
+.nav-item:hover,.nav-item.active{background:var(--c-bg);color:var(--c-text)}
 .nav-item.active{font-weight:500}
-.sidebar-footer{padding:.9rem 1rem;border-top:1px solid rgba(0,0,0,0.06);font-size:12px;color:#999}
-.sidebar-footer strong{display:block;font-size:13px;color:#1a1a18;font-weight:500}
-.logout{cursor:pointer;color:#bbb;text-decoration:underline;font-size:11px}
-.main{margin-left:210px;min-height:100vh}
-.topbar{padding:.9rem 1.5rem;border-bottom:1px solid rgba(0,0,0,0.08);background:#fff;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:5}
-.topbar-title{font-size:15px;font-weight:600;letter-spacing:-0.3px}
-.content{padding:1.5rem}
-.grid{display:grid;gap:10px;margin-bottom:1.25rem}
-.grid-4{grid-template-columns:repeat(4,1fr)}
-.grid-3{grid-template-columns:repeat(3,1fr)}
-.grid-2{grid-template-columns:1fr 1fr}
-.mcard{background:#f5f4f0;border-radius:10px;padding:.85rem 1rem}
-.mcard-label{font-size:11px;color:#999;margin-bottom:5px}
-.mcard-val{font-size:22px;font-weight:600;line-height:1.1;letter-spacing:-0.5px}
-.mcard-unit{font-size:13px;font-weight:400;color:#999;margin-left:2px}
-.mcard-sub{font-size:11px;color:#bbb;margin-top:3px}
-.badge{display:inline-block;font-size:10px;padding:2px 7px;border-radius:4px;font-weight:500;margin-top:4px}
+.sidebar-footer{padding:1.2rem 1.25rem;border-top:1px solid var(--c-border);font-size:var(--fs-sm);color:var(--c-text-mute)}
+.sidebar-footer strong{display:block;font-size:var(--fs-sm);color:var(--c-text);font-weight:500;margin-bottom:2px}
+.logout{cursor:pointer;color:var(--c-text-soft);text-decoration:underline;font-size:var(--fs-xs);margin-top:6px;display:inline-block}
+
+/* Mobile: sidebar vira overlay */
+.sidebar-toggle{display:none;background:none;border:none;cursor:pointer;font-size:22px;padding:0;color:var(--c-text)}
+
+/* ── MAIN ────────────────────────────────────────────────────────────── */
+.main{margin-left:var(--sidebar-w);min-height:100vh}
+.topbar{padding:1.1rem 1.75rem;border-bottom:1px solid var(--c-border);background:var(--c-card);display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:5;gap:1rem;flex-wrap:wrap}
+.topbar-title{font-size:var(--fs-lg);font-weight:600;letter-spacing:-0.3px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#topbar-actions{display:flex;gap:8px;flex-shrink:0;flex-wrap:wrap}
+.content{padding:1.75rem;max-width:1400px}
+
+/* ── GRIDS ───────────────────────────────────────────────────────────── */
+.grid{display:grid;gap:14px;margin-bottom:1.5rem}
+.grid-4{grid-template-columns:repeat(4,minmax(0,1fr))}
+.grid-3{grid-template-columns:repeat(3,minmax(0,1fr))}
+.grid-2{grid-template-columns:repeat(2,minmax(0,1fr))}
+
+/* ── MCARD (cards de métrica) ───────────────────────────────────────── */
+.mcard{background:var(--c-bg);border-radius:10px;padding:1.15rem 1.3rem;min-width:0}
+.mcard-label{font-size:var(--fs-sm);color:var(--c-text-mute);margin-bottom:6px;font-weight:500}
+.mcard-val{font-size:var(--fs-2xl);font-weight:600;line-height:1.1;letter-spacing:-0.5px;overflow-wrap:break-word}
+.mcard-unit{font-size:var(--fs-base);font-weight:400;color:var(--c-text-mute);margin-left:4px}
+.mcard-sub{font-size:var(--fs-xs);color:var(--c-text-soft);margin-top:6px}
+
+/* ── BADGES ──────────────────────────────────────────────────────────── */
+.badge{display:inline-block;font-size:var(--fs-xs);padding:3px 10px;border-radius:5px;font-weight:500;margin-top:6px}
 .ok{background:#e8f5e0;color:#2d6a1f}
 .warn{background:#fef3e0;color:#7a4f00}
 .alert{background:#fde8e8;color:#9b1c1c}
-.card{background:#fff;border:1px solid rgba(0,0,0,0.08);border-radius:12px;padding:1.1rem 1.25rem;margin-bottom:1rem}
-.card-title{font-size:13px;font-weight:600;margin-bottom:1rem;letter-spacing:-0.2px}
-.card-title small{font-size:11px;font-weight:400;color:#bbb;margin-left:6px}
-.pt-table{background:#fff;border:1px solid rgba(0,0,0,0.08);border-radius:12px;overflow:hidden}
-.pt-head{display:grid;grid-template-columns:2fr 1fr 1fr 1fr 130px;padding:.6rem 1rem;border-bottom:1px solid rgba(0,0,0,0.06);font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:#bbb}
-.pt-row{display:grid;grid-template-columns:2fr 1fr 1fr 1fr 130px;padding:.8rem 1rem;border-bottom:1px solid rgba(0,0,0,0.05);align-items:center;cursor:pointer;transition:background .1s}
+
+/* ── CARDS GENÉRICOS ─────────────────────────────────────────────────── */
+.card{background:var(--c-card);border:1px solid var(--c-border);border-radius:12px;padding:1.4rem 1.6rem;margin-bottom:1.25rem}
+.card-title{font-size:var(--fs-base);font-weight:600;margin-bottom:1rem;letter-spacing:-0.2px}
+.card-title small{font-size:var(--fs-xs);font-weight:400;color:var(--c-text-soft);margin-left:8px}
+
+/* ── LISTA DE PACIENTES ──────────────────────────────────────────────── */
+.pt-table{background:var(--c-card);border:1px solid var(--c-border);border-radius:12px;overflow:hidden}
+.pt-head{display:grid;grid-template-columns:2fr 1fr 1fr 1fr 150px;padding:1rem 1.25rem;border-bottom:1px solid var(--c-border);font-size:var(--fs-xs);text-transform:uppercase;letter-spacing:.06em;color:var(--c-text-soft);font-weight:500}
+.pt-row{display:grid;grid-template-columns:2fr 1fr 1fr 1fr 150px;padding:1.1rem 1.25rem;border-bottom:1px solid rgba(0,0,0,0.05);align-items:center;cursor:pointer;transition:background .1s}
 .pt-row:last-child{border-bottom:none}
-.pt-row:hover{background:#fafaf8}
-.pt-name{font-size:13px;font-weight:500}
-.pt-sub{font-size:11px;color:#bbb}
-.btn{padding:5px 12px;border:1px solid rgba(0,0,0,0.12);border-radius:6px;background:#fff;color:#1a1a18;font-size:12px;cursor:pointer;transition:all .1s}
-.btn:hover{background:#f5f4f0}
-.btn-primary{background:#1a1a18;color:#fff;border-color:#1a1a18}
+.pt-row:hover{background:var(--c-hover)}
+.pt-name{font-size:var(--fs-base);font-weight:500}
+.pt-sub{font-size:var(--fs-xs);color:var(--c-text-mute);margin-top:3px}
+
+/* ── BOTÕES ──────────────────────────────────────────────────────────── */
+.btn{padding:9px 16px;border:1px solid rgba(0,0,0,0.12);border-radius:8px;background:var(--c-card);color:var(--c-text);font-size:var(--fs-sm);cursor:pointer;transition:all .1s;font-family:inherit;white-space:nowrap}
+.btn:hover{background:var(--c-bg)}
+.btn-primary{background:var(--c-text);color:var(--c-card);border-color:var(--c-text)}
 .btn-primary:hover{opacity:.85}
-.upload-zone{border:1.5px dashed rgba(0,0,0,0.15);border-radius:10px;padding:2rem;text-align:center;cursor:pointer;background:#fafaf8;transition:border-color .15s}
+
+/* ── UPLOAD ──────────────────────────────────────────────────────────── */
+.upload-zone{border:1.5px dashed rgba(0,0,0,0.15);border-radius:10px;padding:2rem;text-align:center;cursor:pointer;background:var(--c-hover);transition:border-color .15s}
 .upload-zone:hover{border-color:rgba(0,0,0,0.3)}
-.evo-tbl{width:100%;border-collapse:collapse;font-size:12px}
-.evo-tbl th{text-align:left;padding:.4rem .75rem;font-size:10px;color:#bbb;font-weight:400;border-bottom:1px solid rgba(0,0,0,0.06);text-transform:uppercase}
-.evo-tbl td{padding:.55rem .75rem;border-bottom:1px solid rgba(0,0,0,0.05)}
+
+/* ── TABELA GENÉRICA (histórico, segmentos) ─────────────────────────── */
+.table-wrap{overflow-x:auto;margin:0 -0.5rem}
+.evo-tbl{width:100%;border-collapse:collapse;font-size:var(--fs-sm);min-width:500px}
+.evo-tbl th{text-align:left;padding:.7rem 1rem;font-size:var(--fs-xs);color:var(--c-text-mute);font-weight:500;border-bottom:1px solid var(--c-border);text-transform:uppercase;letter-spacing:.03em;white-space:nowrap}
+.evo-tbl td{padding:.85rem 1rem;border-bottom:1px solid rgba(0,0,0,0.05)}
 .evo-tbl tr:last-child td{border-bottom:none}
-.interpret-box{background:#f5f4f0;border-radius:10px;padding:1rem;font-size:13px;line-height:1.7;white-space:pre-wrap;max-height:400px;overflow-y:auto}
-.age-row{display:flex;align-items:center;gap:16px;padding:.5rem 0}
-.age-num{font-size:32px;font-weight:600;line-height:1;letter-spacing:-1px}
-.age-lbl{font-size:11px;color:#bbb;margin-top:2px}
-.loading{text-align:center;padding:3rem;color:#bbb;font-size:13px}
-.form-row{margin-bottom:.75rem}
-.form-row label{display:block;font-size:12px;color:#666;margin-bottom:3px}
-.form-row label small{color:#bbb;font-weight:400}
-.form-row input,.form-row select{width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px;color:#1a1a18}
-.form-row input:focus,.form-row select:focus{outline:none;border-color:#555}
-.success-box{background:#e8f5e0;border-radius:8px;padding:.75rem 1rem;font-size:13px;color:#2d6a1f;margin-top:.75rem}
-.info-box{background:#f0f4ff;border-radius:8px;padding:.75rem 1rem;font-size:12px;color:#1a4fa8;margin-top:.75rem;line-height:1.6}
-.error-box{color:#c0392b;font-size:12px;padding:.5rem .75rem;background:#fde8e8;border-radius:6px;margin-top:.5rem}
-.chart-container{position:relative;height:200px;margin-top:.5rem}
+
+/* ── OUTROS ELEMENTOS ────────────────────────────────────────────────── */
+.interpret-box{background:var(--c-bg);border-radius:10px;padding:1.3rem;font-size:var(--fs-sm);line-height:1.7;white-space:pre-wrap;max-height:450px;overflow-y:auto}
+.age-row{display:flex;align-items:center;gap:20px;padding:.6rem 0}
+.age-num{font-size:var(--fs-3xl);font-weight:600;line-height:1;letter-spacing:-1px}
+.age-lbl{font-size:var(--fs-xs);color:var(--c-text-soft);margin-top:4px}
+.loading{text-align:center;padding:3rem;color:var(--c-text-soft);font-size:var(--fs-sm)}
+
+/* ── FORMULÁRIOS ─────────────────────────────────────────────────────── */
+.form-row{margin-bottom:1.1rem}
+.form-row label{display:block;font-size:var(--fs-sm);color:var(--c-text-sub);margin-bottom:6px;font-weight:500}
+.form-row label small{color:var(--c-text-soft);font-weight:400}
+.form-row input,.form-row select,.form-row textarea{width:100%;padding:11px 14px;border:1px solid #ddd;border-radius:8px;font-size:var(--fs-sm);color:var(--c-text);font-family:inherit;background:var(--c-card)}
+.form-row input:focus,.form-row select:focus,.form-row textarea:focus{outline:none;border-color:#555}
+
+/* ── CAIXAS DE FEEDBACK ──────────────────────────────────────────────── */
+.success-box{background:#e8f5e0;border-radius:8px;padding:1rem 1.3rem;font-size:var(--fs-sm);color:#2d6a1f;margin-top:1rem;line-height:1.5}
+.info-box{background:#f0f4ff;border-radius:8px;padding:1rem 1.3rem;font-size:var(--fs-sm);color:#1a4fa8;margin-top:1rem;line-height:1.6}
+.error-box{color:#c0392b;font-size:var(--fs-sm);padding:.85rem 1.15rem;background:#fde8e8;border-radius:8px;margin-top:.75rem;line-height:1.5}
+
+/* ── CHARTS E DIAGRAMAS ──────────────────────────────────────────────── */
+.chart-container{position:relative;height:240px;margin-top:.5rem}
 .body-diagram{display:flex;justify-content:center;padding:1rem}
-.body-diagram svg{max-width:220px;max-height:500px;width:100%;height:auto}
-.sil-container{display:grid;grid-template-columns:1fr 1fr;gap:1rem;padding:.5rem 0}
+.body-diagram svg{max-width:240px;max-height:520px;width:100%;height:auto}
+
+/* ── SILHUETA SEGMENTAL ──────────────────────────────────────────────── */
+.sil-container{display:grid;grid-template-columns:1fr 1fr;gap:1.5rem;padding:.5rem 0}
 .sil-col{display:flex;flex-direction:column;align-items:center}
-.sil-title{font-size:12px;font-weight:500;margin-bottom:.5rem;color:#1a1a18}
-.sil-body{position:relative;width:100%;max-width:220px;aspect-ratio:240/420;margin:0 auto}
+.sil-title{font-size:var(--fs-sm);font-weight:500;margin-bottom:.8rem;color:var(--c-text)}
+.sil-body{position:relative;width:100%;max-width:240px;aspect-ratio:240/420;margin:0 auto}
 .sil-bg{position:absolute;top:0;left:0;width:100%;height:100%;opacity:0.35;filter:grayscale(1);pointer-events:none}
-.sil-seg{position:absolute;border-radius:6px;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:3px;font-size:9px;line-height:1.25;text-align:center;opacity:0.82}
-.sil-seg-name{font-weight:500;margin-bottom:1px}
-.sil-seg-val{font-size:12px;font-weight:600}
-.sil-legend{display:flex;gap:.75rem;justify-content:center;font-size:10px;color:#888;margin-top:.5rem;flex-wrap:wrap}
-.sil-legend-item{display:flex;align-items:center;gap:4px}
-.sil-dot{width:10px;height:10px;border-radius:2px;opacity:.82}
-.body-legend{display:flex;gap:1rem;justify-content:center;font-size:11px;color:#888;margin-top:.75rem;flex-wrap:wrap}
-.body-legend-item{display:flex;align-items:center;gap:4px}
-.body-legend-dot{width:10px;height:10px;border-radius:2px}
-.seg-label{font-size:10px;font-weight:500;fill:#1a1a18}
-.seg-label-sub{font-size:9px;fill:#666}
-.body-toggle{display:flex;gap:0;margin-bottom:.75rem;border:1px solid #eee;border-radius:6px;overflow:hidden;max-width:260px;margin-left:auto;margin-right:auto}
-.body-toggle-btn{flex:1;padding:5px;font-size:11px;cursor:pointer;border:none;background:#f5f4f0;color:#999;transition:all .15s}
+.sil-seg{position:absolute;border-radius:8px;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:5px;font-size:var(--fs-xs);line-height:1.25;text-align:center;opacity:0.9}
+.sil-seg-name{font-weight:500;margin-bottom:3px}
+.sil-seg-val{font-size:var(--fs-sm);font-weight:600}
+.sil-legend{display:flex;gap:1rem;justify-content:center;font-size:var(--fs-xs);color:#888;margin-top:.8rem;flex-wrap:wrap}
+.sil-legend-item{display:flex;align-items:center;gap:5px}
+.sil-dot{width:12px;height:12px;border-radius:3px;opacity:.85}
+
+/* ── LEGENDAS DO CORPO (body legacy) ─────────────────────────────────── */
+.body-legend{display:flex;gap:1rem;justify-content:center;font-size:var(--fs-xs);color:#888;margin-top:1rem;flex-wrap:wrap}
+.body-legend-item{display:flex;align-items:center;gap:5px}
+.body-legend-dot{width:12px;height:12px;border-radius:3px}
+.seg-label{font-size:var(--fs-xs);font-weight:500;fill:var(--c-text)}
+.seg-label-sub{font-size:var(--fs-xs);fill:var(--c-text-sub)}
+.body-toggle{display:flex;gap:0;margin-bottom:1rem;border:1px solid #eee;border-radius:8px;overflow:hidden;max-width:300px;margin-left:auto;margin-right:auto}
+
+/* Overlay escuro quando sidebar aberta no mobile */
+.sidebar-backdrop{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:9}
+.sidebar-backdrop.active{display:block}
+
+.body-toggle-btn{flex:1;padding:7px;font-size:var(--fs-sm);cursor:pointer;border:none;background:#f5f4f0;color:#999;transition:all .15s;font-family:inherit}
 .body-toggle-btn.active{background:#1a1a18;color:#fff}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   BREAKPOINT 1: Desktop médio (≤1100px)
+   Grids de 4 colunas viram 2. Sidebar mantém tamanho.
+   ═══════════════════════════════════════════════════════════════════════ */
+@media (max-width: 1100px) {
+  .grid-4{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .grid-3{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   BREAKPOINT 2: Tablet (≤900px)
+   Sidebar mais estreita. Silhuetas em coluna única.
+   ═══════════════════════════════════════════════════════════════════════ */
+@media (max-width: 900px) {
+  :root { --sidebar-w: 210px; }
+  .sil-container{grid-template-columns:1fr;gap:2rem}
+  .content{padding:1.25rem}
+  .topbar{padding:.9rem 1.25rem}
+  .pt-head,.pt-row{grid-template-columns:1.8fr 1fr 1fr 1fr 110px;font-size:var(--fs-sm)}
+  .mcard-val{font-size:var(--fs-xl)}
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   BREAKPOINT 3: Mobile (≤700px)
+   Sidebar vira overlay, tudo em 1 coluna, tabelas simplificadas.
+   ═══════════════════════════════════════════════════════════════════════ */
+@media (max-width: 700px) {
+  .sidebar{transform:translateX(-100%);width:260px;transition:transform .2s}
+  .sidebar.open{transform:translateX(0)}
+  .main{margin-left:0}
+  .sidebar-toggle{display:block}
+  .topbar{padding:.85rem 1rem;gap:.6rem}
+  .topbar-title{font-size:var(--fs-base)}
+  #topbar-actions{display:flex;flex-wrap:wrap;gap:6px}
+  .content{padding:1rem}
+  .grid-4,.grid-3,.grid-2{grid-template-columns:1fr}
+  .mcard-val{font-size:var(--fs-xl)}
+  .card{padding:1.15rem 1.25rem}
+  /* Tabela de pacientes colapsa — só mostra nome e ações */
+  .pt-head{display:none}
+  .pt-row{display:block;padding:1rem}
+  .pt-row > div{margin-bottom:6px}
+  .pt-row > div:last-child{display:flex;gap:6px;justify-content:flex-end;margin-top:10px}
+  .age-num{font-size:var(--fs-2xl)}
+  .btn{padding:8px 14px;font-size:var(--fs-sm)}
+  .evo-tbl{font-size:var(--fs-sm)}
+  .evo-tbl th,.evo-tbl td{padding:.5rem .6rem}
+}
 </style>
 </head>
 <body>
 
-<div class="sidebar">
+<div class="sidebar-backdrop" id="sidebar-backdrop" onclick="toggleSidebar(false)"></div>
+
+<div class="sidebar" id="sidebar">
   <div class="logo">BioScan <span>Healthspan</span></div>
   <div class="nav" id="sidebar-nav">
     <div class="nav-section">Clínica</div>
@@ -117,6 +236,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 
 <div class="main">
   <div class="topbar">
+    <button class="sidebar-toggle" onclick="toggleSidebar()" aria-label="Menu">☰</button>
     <div class="topbar-title" id="topbar-title">Carregando...</div>
     <div id="topbar-actions"></div>
   </div>
@@ -137,6 +257,22 @@ if (!token) window.location.href = '/';
 
 isDoctor = user.role === 'doctor';
 document.getElementById('footer-name').textContent = user.name || user.email || '—';
+
+// ── SIDEBAR (mobile) ──────────────────────────────────────────────────
+function toggleSidebar(force) {
+  const sb = document.getElementById('sidebar');
+  const bd = document.getElementById('sidebar-backdrop');
+  const open = force !== undefined ? force : !sb.classList.contains('open');
+  sb.classList.toggle('open', open);
+  bd.classList.toggle('active', open);
+}
+
+// Fecha a sidebar automaticamente quando um item é clicado em telas pequenas
+document.getElementById('sidebar-nav').addEventListener('click', (e) => {
+  if (e.target.classList.contains('nav-item') && window.innerWidth <= 600) {
+    toggleSidebar(false);
+  }
+});
 document.getElementById('footer-role').textContent = isDoctor ? 'Médico' : 'Paciente';
 
 if (isDoctor) {
@@ -238,8 +374,8 @@ function renderAuditLog(logs) {
     document.getElementById('content').innerHTML = `
       <div style="text-align:center;padding:3rem;color:#bbb">
         <div style="font-size:28px;margin-bottom:1rem">📋</div>
-        <div style="font-size:14px">Nenhuma ação registrada para este paciente ainda.</div>
-        <div style="font-size:12px;color:#ccc;margin-top:.5rem">O registro começa a partir da próxima ação (criar, editar, importar, excluir).</div>
+        <div style="font-size:var(--fs-sm)">Nenhuma ação registrada para este paciente ainda.</div>
+        <div style="font-size:var(--fs-sm);color:#ccc;margin-top:.5rem">O registro começa a partir da próxima ação (criar, editar, importar, excluir).</div>
       </div>`;
     return;
   }
@@ -272,11 +408,11 @@ function renderAuditLog(logs) {
         const fmt = (v) => v == null || v === '' ? '(vazio)' : v;
         return `<div style="margin-top:4px"><strong>${field}:</strong> ${fmt(vals.from)} → ${fmt(vals.to)}</div>`;
       }).join('');
-      return `<div style="font-size:12px;color:#666;margin-top:6px">${changes}</div>`;
+      return `<div style="font-size:var(--fs-sm);color:#666;margin-top:6px">${changes}</div>`;
     }
 
     if (action === 'patient.delete') {
-      return `<div style="font-size:12px;color:#666;margin-top:6px">
+      return `<div style="font-size:var(--fs-sm);color:#666;margin-top:6px">
         ${details.name || ''} ${details.cpf ? '· ' + details.cpf : ''}
         ${details.measurements_count ? ' · ' + details.measurements_count + ' medição(ões) removida(s)' : ''}
       </div>`;
@@ -284,7 +420,7 @@ function renderAuditLog(logs) {
 
     if (action === 'measurement.delete') {
       const dt = details.measured_at ? new Date(details.measured_at).toLocaleDateString('pt-BR') : '';
-      return `<div style="font-size:12px;color:#666;margin-top:6px">
+      return `<div style="font-size:var(--fs-sm);color:#666;margin-top:6px">
         Medição de ${dt} (${details.source || '—'})
         ${details.weight ? ' · Peso ' + details.weight + 'kg' : ''}
         ${details.fat_pct ? ' · ' + details.fat_pct + '% gordura' : ''}
@@ -292,20 +428,20 @@ function renderAuditLog(logs) {
     }
 
     if (action === 'measurement.import_pdf') {
-      return `<div style="font-size:12px;color:#666;margin-top:6px">
+      return `<div style="font-size:var(--fs-sm);color:#666;margin-top:6px">
         Fabricante: ${details.manufacturer || '—'}
         ${details.detected_name ? ' · Nome no PDF: ' + details.detected_name : ''}
       </div>`;
     }
 
     if (action === 'measurement.import_csv') {
-      return `<div style="font-size:12px;color:#666;margin-top:6px">
+      return `<div style="font-size:var(--fs-sm);color:#666;margin-top:6px">
         ${details.inserted || 0} inserida(s)${details.skipped ? ', ' + details.skipped + ' duplicata(s) ignorada(s)' : ''}
       </div>`;
     }
 
     // Fallback: mostra JSON compacto
-    return `<div style="font-size:11px;color:#999;margin-top:6px;font-family:monospace">${JSON.stringify(details)}</div>`;
+    return `<div style="font-size:var(--fs-xs);color:#999;margin-top:6px;font-family:monospace">${JSON.stringify(details)}</div>`;
   };
 
   const rows = logs.map(log => {
@@ -313,10 +449,10 @@ function renderAuditLog(logs) {
     return `
       <div style="padding:1rem;border-bottom:1px solid #f0f0f0">
         <div style="display:flex;align-items:flex-start;gap:12px">
-          <div style="font-size:16px;color:${meta.color};width:24px;text-align:center">${meta.icon}</div>
+          <div style="font-size:var(--fs-base);color:${meta.color};width:24px;text-align:center">${meta.icon}</div>
           <div style="flex:1">
-            <div style="font-size:13px;font-weight:500;color:#1a1a18">${meta.label}</div>
-            <div style="font-size:12px;color:#999;margin-top:2px">
+            <div style="font-size:var(--fs-sm);font-weight:500;color:#1a1a18">${meta.label}</div>
+            <div style="font-size:var(--fs-sm);color:#999;margin-top:2px">
               ${formatDate(log.timestamp)} · por <strong>${log.user_name || log.user_email || '—'}</strong>
             </div>
             ${formatDetails(log.action, log.details)}
@@ -329,7 +465,7 @@ function renderAuditLog(logs) {
     <div class="card" style="padding:0">
       <div style="padding:1rem;border-bottom:1px solid #f0f0f0">
         <div class="card-title" style="margin:0">Histórico de ações (${logs.length})</div>
-        <div style="font-size:12px;color:#999;margin-top:4px">Últimas 200 ações registradas para este paciente.</div>
+        <div style="font-size:var(--fs-sm);color:#999;margin-top:4px">Últimas 200 ações registradas para este paciente.</div>
       </div>
       ${rows}
     </div>`;
@@ -395,7 +531,7 @@ async function loadPatients() {
     document.getElementById('content').innerHTML = `
       <div style="text-align:center;padding:3rem;color:#bbb">
         <div style="font-size:32px;margin-bottom:1rem">◈</div>
-        <div style="font-size:14px;margin-bottom:1rem">Nenhum paciente cadastrado</div>
+        <div style="font-size:var(--fs-sm);margin-bottom:1rem">Nenhum paciente cadastrado</div>
         <button class="btn btn-primary" onclick="showScreen('new-patient')">+ Cadastrar primeiro paciente</button>
       </div>`;
     return;
@@ -407,7 +543,7 @@ async function loadPatients() {
   document.getElementById('content').innerHTML = `
     <div style="margin-bottom:1rem">
       <input type="text" id="pt-search" placeholder="Buscar por nome ou CPF..."
-             style="width:100%;padding:10px 14px;border:1px solid #ddd;border-radius:8px;font-size:13px;color:#1a1a18"
+             style="width:100%;padding:10px 14px;border:1px solid #ddd;border-radius:8px;font-size:var(--fs-sm);color:#1a1a18"
              oninput="filterPatients(this.value)"
              autocomplete="off">
     </div>
@@ -442,7 +578,7 @@ function renderPatientList(patients) {
   if (!container) return;
 
   if (!patients.length) {
-    container.innerHTML = '<div style="text-align:center;padding:2rem;color:#bbb;font-size:13px">Nenhum paciente encontrado.</div>';
+    container.innerHTML = '<div style="text-align:center;padding:2rem;color:#bbb;font-size:var(--fs-sm)">Nenhum paciente encontrado.</div>';
     return;
   }
 
@@ -542,7 +678,7 @@ async function createPatient() {
     return;
   }
 
-  result.innerHTML = '<div style="color:#999;font-size:12px;margin-top:.5rem">Cadastrando...</div>';
+  result.innerHTML = '<div style="color:#999;font-size:var(--fs-sm);margin-top:.5rem">Cadastrando...</div>';
 
   const data = await api('POST', '/bioscan/patients', {
     name, email, cpf, phone: phone || null,
@@ -580,7 +716,7 @@ async function savePatient(id) {
     return;
   }
 
-  result.innerHTML = '<div style="color:#999;font-size:12px;margin-top:.5rem">Salvando...</div>';
+  result.innerHTML = '<div style="color:#999;font-size:var(--fs-sm);margin-top:.5rem">Salvando...</div>';
 
   const payload = {
     name, cpf,
@@ -717,7 +853,7 @@ function renderOverview() {
           <div><div class="age-num" style="color:#bbb">${age}</div><div class="age-lbl">Idade real</div></div>
           <div style="font-size:20px;color:#ddd">→</div>
           <div><div class="age-num" style="color:${metaColor}">${m.meta_age || '—'}</div><div class="age-lbl">Metabólica</div></div>
-          ${metaDiff !== null ? `<div><div style="font-size:16px;font-weight:600;color:${metaColor}">${metaDiff > 0 ? '+' : ''}${metaDiff}</div><div class="age-lbl">anos</div></div>` : ''}
+          ${metaDiff !== null ? `<div><div style="font-size:var(--fs-base);font-weight:600;color:${metaColor}">${metaDiff > 0 ? '+' : ''}${metaDiff}</div><div class="age-lbl">anos</div></div>` : ''}
         </div>
         <div style="margin-top:1rem">
           ${(p.risk_flags || []).map(f => `<div class="badge ${f.level}" style="display:block;margin-bottom:4px;padding:4px 8px">${f.message}</div>`).join('')}
@@ -734,7 +870,7 @@ function renderOverview() {
       </div>` : `
       <div class="card">
         <div class="card-title">Resumo clínico</div>
-        <div style="font-size:13px;color:#666;line-height:1.7">
+        <div style="font-size:var(--fs-sm);color:#666;line-height:1.7">
           Seus dados foram analisados pela equipe médica.<br>
           Para interpretação detalhada, consulte seu médico.
         </div>
@@ -974,7 +1110,7 @@ function renderBodyDual(m) {
         ? segLabels[key]
         : segLabels[key];
       const valText = isEmpty
-        ? '<span style="font-style:italic;color:#999;font-size:10px">não detectado</span>'
+        ? '<span style="font-style:italic;color:#999;font-size:var(--fs-xs)">não detectado</span>'
         : `${fmtFn(val)}${unit}`;
       return `<div class="sil-seg" style="${segPositions[key].style};background:${colorFn(val)};color:${textFn(val)};${styleExtra}">
         <div class="sil-seg-name">${nameText}</div>
@@ -1057,13 +1193,13 @@ function renderUpload() {
         <div class="card-title">Selecionar paciente</div>
         <div class="form-row">
           <input type="text" id="upload-search" placeholder="Buscar por nome ou CPF..."
-                 style="width:100%;padding:10px 14px;border:1px solid #ddd;border-radius:8px;font-size:13px"
+                 style="width:100%;padding:10px 14px;border:1px solid #ddd;border-radius:8px;font-size:var(--fs-sm)"
                  oninput="filterUploadPatients(this.value)" autocomplete="off">
         </div>
         <div id="upload-patients" style="max-height:220px;overflow-y:auto;border:1px solid #eee;border-radius:8px">
           <div class="loading" style="padding:1rem">Carregando...</div>
         </div>
-        <div id="upload-selected" style="margin-top:.75rem;font-size:13px;color:#666"></div>
+        <div id="upload-selected" style="margin-top:.75rem;font-size:var(--fs-sm);color:#666"></div>
       </div>
 
       <div class="card">
@@ -1071,13 +1207,13 @@ function renderUpload() {
         <div class="grid grid-2" style="gap:12px">
           <div class="upload-zone" onclick="openCSVPicker()" style="padding:1.5rem">
             <div style="font-size:20px;margin-bottom:.4rem">📄</div>
-            <div style="font-size:12px;font-weight:500;color:#1a1a18">Arquivo CSV</div>
-            <div style="font-size:10px;color:#999;margin-top:3px">Tanita BC-780, 545N, MC-780MA</div>
+            <div style="font-size:var(--fs-sm);font-weight:500;color:#1a1a18">Arquivo CSV</div>
+            <div style="font-size:var(--fs-xs);color:#999;margin-top:3px">Tanita BC-780, 545N, MC-780MA</div>
           </div>
           <div class="upload-zone" onclick="openPDFPicker()" style="padding:1.5rem">
             <div style="font-size:20px;margin-bottom:.4rem">📑</div>
-            <div style="font-size:12px;font-weight:500;color:#1a1a18">Arquivo PDF</div>
-            <div style="font-size:10px;color:#999;margin-top:3px">Tanita/Bioeasy ou InBody (via IA)</div>
+            <div style="font-size:var(--fs-sm);font-weight:500;color:#1a1a18">Arquivo PDF</div>
+            <div style="font-size:var(--fs-xs);color:#999;margin-top:3px">Tanita/Bioeasy ou InBody (via IA)</div>
           </div>
         </div>
         <input type="file" id="csvfile" accept=".csv" style="display:none" onchange="uploadCSV(this)">
@@ -1124,14 +1260,14 @@ function renderUploadPatients(patients) {
   if (!el) return;
 
   if (!patients.length) {
-    el.innerHTML = '<div style="color:#bbb;font-size:13px;padding:1rem;text-align:center">Nenhum paciente encontrado.</div>';
+    el.innerHTML = '<div style="color:#bbb;font-size:var(--fs-sm);padding:1rem;text-align:center">Nenhum paciente encontrado.</div>';
     return;
   }
 
   el.innerHTML = patients.map(p => {
     const isSelected = window._uploadPid === p.id;
     return `<div onclick="selectUploadPatient(${p.id})"
-      style="padding:.6rem 1rem;font-size:13px;border-bottom:1px solid #f0f0f0;cursor:pointer;transition:background .1s;${isSelected ? 'background:#eef5e0' : ''}"
+      style="padding:.6rem 1rem;font-size:var(--fs-sm);border-bottom:1px solid #f0f0f0;cursor:pointer;transition:background .1s;${isSelected ? 'background:#eef5e0' : ''}"
       onmouseover="this.style.background='${isSelected ? '#eef5e0' : '#fafaf8'}'"
       onmouseout="this.style.background='${isSelected ? '#eef5e0' : '#fff'}'">
       <strong>${p.name}</strong>${p.cpf ? ' <span style="color:#999">· ' + p.cpf + '</span>' : ''}
@@ -1163,7 +1299,7 @@ async function loadPatientMeasurements(pid) {
   count.textContent = `(${ms.length})`;
 
   if (!ms.length) {
-    list.innerHTML = '<div style="color:#bbb;font-size:13px;padding:.5rem">Nenhuma medição registrada.</div>';
+    list.innerHTML = '<div style="color:#bbb;font-size:var(--fs-sm);padding:.5rem">Nenhuma medição registrada.</div>';
     return;
   }
 
@@ -1183,7 +1319,7 @@ async function loadPatientMeasurements(pid) {
   };
   const srcBadge = (src) => {
     const s = sourceLabels[src] || { label: src || '—', color: '#999' };
-    return `<span style="font-size:10px;padding:2px 6px;border-radius:4px;background:${s.color}15;color:${s.color};font-weight:500">${s.label}</span>`;
+    return `<span style="font-size:var(--fs-xs);padding:2px 6px;border-radius:4px;background:${s.color}15;color:${s.color};font-weight:500">${s.label}</span>`;
   };
 
   list.innerHTML = `
@@ -1201,7 +1337,7 @@ async function loadPatientMeasurements(pid) {
             <td>${m.muscle_kg ? m.muscle_kg.toFixed(2) + ' kg' : '—'}</td>
             <td>${m.visceral != null ? m.visceral : '—'}</td>
             <td style="text-align:right">
-              <button class="btn" style="color:#c0392b;padding:3px 8px;font-size:11px"
+              <button class="btn" style="color:#c0392b;padding:3px 8px;font-size:var(--fs-xs)"
                 onclick="deleteMeasurement(${pid}, ${m.id}, '${display}')">✕</button>
             </td>
           </tr>`;
@@ -1237,7 +1373,7 @@ async function uploadCSV(input) {
   if (!file) return;
   const pid = window._uploadPid;
   const result = document.getElementById('upload-result');
-  result.innerHTML = '<div style="color:#999;font-size:12px;margin-top:.5rem">Importando...</div>';
+  result.innerHTML = '<div style="color:#999;font-size:var(--fs-sm);margin-top:.5rem">Importando...</div>';
 
   const form = new FormData();
   form.append('csv', file);
@@ -1272,7 +1408,7 @@ async function uploadPDF(input) {
   if (!file) return;
   const pid = window._uploadPid;
   const result = document.getElementById('upload-result');
-  result.innerHTML = `<div style="color:#999;font-size:12px;margin-top:.5rem">
+  result.innerHTML = `<div style="color:#999;font-size:var(--fs-sm);margin-top:.5rem">
     Processando PDF com IA... isso pode levar 10-20 segundos.
   </div>`;
 
