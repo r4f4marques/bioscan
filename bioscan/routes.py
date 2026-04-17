@@ -28,6 +28,12 @@ def health():
     return jsonify({"status": "ok", "service": "bioscan-healthspan"})
 
 
+@bioscan_bp.get("/debug-jwt")
+def debug_jwt():
+    secret = _jwt_secret()
+    return jsonify({"jwt_secret_length": len(secret), "jwt_secret_prefix": secret[:8]})
+
+
 # ── JWT AUTH ──────────────────────────────────────────────────────────────
 
 def create_token(user: User) -> str:
