@@ -40,8 +40,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .card-title{font-size:13px;font-weight:600;margin-bottom:1rem;letter-spacing:-0.2px}
 .card-title small{font-size:11px;font-weight:400;color:#bbb;margin-left:6px}
 .pt-table{background:#fff;border:1px solid rgba(0,0,0,0.08);border-radius:12px;overflow:hidden}
-.pt-head{display:grid;grid-template-columns:2fr 1fr 1fr 1fr 90px;padding:.6rem 1rem;border-bottom:1px solid rgba(0,0,0,0.06);font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:#bbb}
-.pt-row{display:grid;grid-template-columns:2fr 1fr 1fr 1fr 90px;padding:.8rem 1rem;border-bottom:1px solid rgba(0,0,0,0.05);align-items:center;cursor:pointer;transition:background .1s}
+.pt-head{display:grid;grid-template-columns:2fr 1fr 1fr 1fr 130px;padding:.6rem 1rem;border-bottom:1px solid rgba(0,0,0,0.06);font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:#bbb}
+.pt-row{display:grid;grid-template-columns:2fr 1fr 1fr 1fr 130px;padding:.8rem 1rem;border-bottom:1px solid rgba(0,0,0,0.05);align-items:center;cursor:pointer;transition:background .1s}
 .pt-row:last-child{border-bottom:none}
 .pt-row:hover{background:#fafaf8}
 .pt-name{font-size:13px;font-weight:500}
@@ -205,8 +205,18 @@ function showPatient(p) {
   document.getElementById('nav-patient-name').textContent = p.name.split(' ')[0];
   document.getElementById('topbar-title').textContent = p.name;
   document.getElementById('topbar-actions').innerHTML =
-    '<button class="btn" onclick="showScreen(\'list\')">← Voltar</button>';
+    '<button class="btn" onclick="showScreen(\'list\')">← Voltar</button> ' +
+    (isDoctor ? '<button class="btn" onclick="editPatient()">✎ Editar cadastro</button>' : '');
   showTab('overview');
+}
+
+function editPatient() {
+  destroyCharts();
+  setNav(null);
+  document.getElementById('topbar-title').textContent = 'Editar cadastro';
+  document.getElementById('topbar-actions').innerHTML =
+    `<button class="btn" onclick="selectPatient(${currentPatient.id})">← Voltar para paciente</button>`;
+  renderPatientForm(currentPatient);
 }
 
 function showTab(tab) {
@@ -282,7 +292,10 @@ async function loadPatients() {
       <div>${l.bmi ? `<span class="badge ${bmiStatus(l.bmi)}">${l.bmi.toFixed(1)}</span>` : '—'}</div>
       <div>${l.fat_pct !== undefined ? `<span class="badge ${fatStatus(l.fat_pct, p.sex)}">${l.fat_pct.toFixed(1)}%</span>` : '—'}</div>
       <div>${l.visceral !== undefined ? `<span class="badge ${viscStatus(l.visceral)}">${l.visceral}</span>` : '—'}</div>
-      <div><button class="btn">Ver →</button></div>
+      <div style="display:flex;gap:4px;justify-content:flex-end" onclick="event.stopPropagation()">
+        <button class="btn" onclick="selectPatient(${p.id})">Ver →</button>
+        <button class="btn" style="color:#c0392b" onclick="deletePatient(${p.id}, '${p.name.replace(/'/g, "\\'")}')">✕</button>
+      </div>
     </div>`;
   }).join('');
 
@@ -293,33 +306,61 @@ async function loadPatients() {
     </div>`;
 }
 
+async function deletePatient(id, name) {
+  if (!confirm(`Excluir ${name}?\n\nTodas as medições serão removidas permanentemente. Esta ação não pode ser desfeita.`)) {
+    return;
+  }
+  const result = await api('DELETE', `/bioscan/patients/${id}`);
+  if (result && !result.error) {
+    loadPatients();
+  } else {
+    alert('Erro ao excluir: ' + (result?.error || 'desconhecido'));
+  }
+}
+
 async function selectPatient(id) {
   const data = await api('GET', `/bioscan/patients/${id}`);
   if (data) showPatient(data);
 }
 
-// ── NEW PATIENT ───────────────────────────────────────────────────────────
+// ── NEW / EDIT PATIENT ────────────────────────────────────────────────────
 function renderNewPatient() {
+  renderPatientForm(null);
+}
+
+function renderPatientForm(existing) {
+  const isEdit = !!existing;
+  const p = existing || {};
+
+  // Data no formato YYYY-MM-DD para o input type=date
+  const birthValue = p.birth_date ? p.birth_date.substring(0, 10) : '';
+
   document.getElementById('content').innerHTML = `
     <div style="max-width:560px">
       <div class="card">
-        <div class="card-title">Dados do paciente</div>
-        <div class="form-row"><label>Nome completo *</label><input type="text" id="np-name" placeholder="Nome do paciente"></div>
+        <div class="card-title">${isEdit ? 'Editar cadastro do paciente' : 'Dados do paciente'}</div>
+        <div class="form-row"><label>Nome completo *</label><input type="text" id="np-name" placeholder="Nome do paciente" value="${p.name || ''}"></div>
         <div class="grid grid-2">
-          <div class="form-row"><label>CPF *</label><input type="text" id="np-cpf" placeholder="000.000.000-00" maxlength="14"></div>
-          <div class="form-row"><label>Celular <small>(opcional)</small></label><input type="text" id="np-phone" placeholder="(11) 91234-5678" maxlength="15"></div>
+          <div class="form-row"><label>CPF *</label><input type="text" id="np-cpf" placeholder="000.000.000-00" maxlength="14" value="${p.cpf || ''}"></div>
+          <div class="form-row"><label>Celular <small>(opcional)</small></label><input type="text" id="np-phone" placeholder="(11) 91234-5678" maxlength="15" value="${p.phone || ''}"></div>
         </div>
-        <div class="form-row"><label>E-mail *</label><input type="email" id="np-email" placeholder="email@exemplo.com"></div>
-        <div class="form-row"><label>Data de nascimento * <small>(usada para login)</small></label><input type="date" id="np-birth"></div>
+        ${isEdit
+          ? `<div class="form-row"><label>E-mail <small>(não editável)</small></label><input type="email" disabled value="${p.email || '—'}" style="background:#f5f4f0;color:#999"></div>`
+          : `<div class="form-row"><label>E-mail *</label><input type="email" id="np-email" placeholder="email@exemplo.com"></div>`}
+        <div class="form-row"><label>Data de nascimento * <small>${isEdit ? '' : '(usada para login)'}</small></label><input type="date" id="np-birth" value="${birthValue}"></div>
         <div class="grid grid-2">
           <div class="form-row"><label>Sexo</label>
-            <select id="np-sex"><option value="">—</option><option value="M">Masculino</option><option value="F">Feminino</option></select>
+            <select id="np-sex">
+              <option value="">—</option>
+              <option value="M" ${p.sex === 'M' ? 'selected' : ''}>Masculino</option>
+              <option value="F" ${p.sex === 'F' ? 'selected' : ''}>Feminino</option>
+            </select>
           </div>
-          <div class="form-row"><label>Altura (cm)</label><input type="number" id="np-height" placeholder="175"></div>
+          <div class="form-row"><label>Altura (cm)</label><input type="number" id="np-height" placeholder="175" value="${p.height_cm || ''}"></div>
         </div>
-        <div class="form-row"><label>Observações</label><input type="text" id="np-notes" placeholder="Diagnósticos, contexto clínico..."></div>
+        <div class="form-row"><label>Observações</label><input type="text" id="np-notes" placeholder="Diagnósticos, contexto clínico..." value="${p.notes || ''}"></div>
         <div id="np-result"></div>
-        <button class="btn btn-primary" style="width:100%;margin-top:1rem" onclick="createPatient()">Cadastrar paciente</button>
+        <button class="btn btn-primary" style="width:100%;margin-top:1rem" onclick="${isEdit ? `savePatient(${p.id})` : 'createPatient()'}">${isEdit ? 'Salvar alterações' : 'Cadastrar paciente'}</button>
       </div>
     </div>`;
 
@@ -363,6 +404,45 @@ async function createPatient() {
         Data de nascimento: <strong>${birth}</strong><br>
         URL: <strong>bioscan.tridash.fit</strong>
       </div>`;
+  }
+}
+
+async function savePatient(id) {
+  const result = document.getElementById('np-result');
+  const name  = document.getElementById('np-name').value.trim();
+  const cpf   = document.getElementById('np-cpf').value.trim();
+  const phone = document.getElementById('np-phone').value.trim();
+  const birth = document.getElementById('np-birth').value;
+
+  if (!name || !cpf) {
+    result.innerHTML = '<div class="error-box">Nome e CPF são obrigatórios.</div>';
+    return;
+  }
+
+  result.innerHTML = '<div style="color:#999;font-size:12px;margin-top:.5rem">Salvando...</div>';
+
+  const payload = {
+    name, cpf,
+    phone: phone || null,
+    sex:       document.getElementById('np-sex').value || null,
+    height_cm: parseFloat(document.getElementById('np-height').value) || null,
+    notes:     document.getElementById('np-notes').value || null,
+  };
+  if (birth) payload.birth_date = birth;
+
+  const data = await api('PATCH', `/bioscan/patients/${id}`, payload);
+
+  if (!data) return;
+
+  if (data.error) {
+    result.innerHTML = `<div class="error-box">${data.error}</div>`;
+  } else {
+    result.innerHTML = '<div class="success-box">✓ Cadastro atualizado com sucesso!</div>';
+    // Recarregar paciente atualizado e voltar para a visão geral
+    setTimeout(async () => {
+      const fresh = await api('GET', `/bioscan/patients/${id}`);
+      if (fresh) showPatient(fresh);
+    }, 800);
   }
 }
 
