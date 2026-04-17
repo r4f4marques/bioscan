@@ -394,6 +394,63 @@ def import_csv(pid):
     }), 201
 
 
+# ── PDF IMPORT (via LLM Vision) ──────────────────────────────────────────
+
+@bioscan_bp.post("/patients/<int:pid>/import-pdf")
+@require_role("doctor")
+def import_pdf(pid):
+    """
+    Importa medição a partir de PDF Tanita (imagem) via Groq Vision.
+    Extrai os valores com Llama 4 Scout e cria um Measurement.
+    """
+    from .tanita_pdf_parser import parse_tanita_pdf
+
+    db.get_or_404(Patient, pid)
+
+    if "pdf" not in request.files:
+        return jsonify({"error": "Campo 'pdf' não encontrado no form"}), 400
+
+    file = request.files["pdf"]
+    pdf_bytes = file.read()
+
+    if not pdf_bytes:
+        return jsonify({"error": "PDF vazio"}), 400
+
+    try:
+        row = parse_tanita_pdf(pdf_bytes)
+    except RuntimeError as e:
+        return jsonify({"error": f"Configuração: {str(e)}"}), 500
+    except ValueError as e:
+        return jsonify({"error": f"Erro na extração: {str(e)}"}), 422
+    except Exception as e:
+        return jsonify({"error": f"Erro ao processar PDF: {str(e)}"}), 500
+
+    measured_at = row.pop("measured_at")
+    detected_name = row.pop("_patient_name_detected", None)
+
+    # Evita duplicatas pela data de medição
+    exists = Measurement.query.filter_by(
+        patient_id=pid, measured_at=measured_at).first()
+    if exists:
+        return jsonify({
+            "error": f"Já existe medição para {measured_at.strftime('%d/%m/%Y')} neste paciente",
+            "measurement_id": exists.id,
+            "detected_name": detected_name,
+        }), 409
+
+    m = Measurement(patient_id=pid, source="tanita_pdf",
+                    measured_at=measured_at)
+    _fill_measurement(m, row)
+    db.session.add(m)
+    db.session.commit()
+
+    return jsonify({
+        "inserted": 1,
+        "measurement": m.to_dict(),
+        "detected_name": detected_name,
+    }), 201
+
+
 # ── HEALTHSPAN SUMMARY ────────────────────────────────────────────────────
 
 @bioscan_bp.get("/patients/<int:pid>/summary")
