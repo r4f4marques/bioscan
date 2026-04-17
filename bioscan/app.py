@@ -139,6 +139,8 @@ def _seed_demo():
 
 
 if __name__ == "__main__":
+    # Execução local de desenvolvimento (não usado em produção).
+    # Produção usa Gunicorn via Procfile: gunicorn bioscan.wsgi:app
     app = create_app()
     port = int(os.environ.get("PORT", 5001))
     app.run(host="0.0.0.0", port=port, debug=False)
