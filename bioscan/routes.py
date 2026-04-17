@@ -19,7 +19,7 @@ JWT_EXPIRES = timedelta(hours=12)
 
 
 def _jwt_secret():
-    """Lê o JWT_SECRET em tempo de execução — garante que a variável de ambiente está disponível."""
+    """Lê o JWT_SECRET em tempo de execução."""
     return os.environ.get("JWT_SECRET", "dev-only-change-in-prod")
 
 
@@ -32,6 +32,18 @@ def health():
 def debug_jwt():
     secret = _jwt_secret()
     return jsonify({"jwt_secret_length": len(secret), "jwt_secret_prefix": secret[:8]})
+
+
+@bioscan_bp.get("/debug-validate")
+def debug_validate():
+    auth = request.headers.get("Authorization", "")
+    token = auth.replace("Bearer ", "")
+    secret = _jwt_secret()
+    try:
+        payload = jwt.decode(token, secret, algorithms=["HS256"])
+        return jsonify({"ok": True, "payload": payload})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e), "error_type": type(e).__name__})
 
 
 # ── JWT AUTH ──────────────────────────────────────────────────────────────
