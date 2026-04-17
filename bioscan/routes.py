@@ -10,7 +10,7 @@ from functools import wraps
 from flask import Blueprint, request, jsonify, g, send_file
 import jwt
 
-from .models import db, User, Patient, Measurement
+from .models import db, User, Patient, Measurement, AuditLog
 from .tanita_parser import parse_tanita_file, parse_tanita_csv
 from .pdf_report import generate_pdf
 
@@ -109,6 +109,37 @@ def require_role(*roles):
             return fn(*args, **kwargs)
         return wrapper
     return decorator
+
+
+# ── AUDIT LOG HELPER ──────────────────────────────────────────────────────
+
+def log_action(action: str, entity_type: str = None, entity_id: int = None,
+               patient_id: int = None, details: dict = None):
+    """
+    Registra uma ação de escrita no log de auditoria.
+    Nunca levanta exceção — falha silenciosamente se algo der errado
+    (logar auditoria não pode quebrar o fluxo principal).
+    """
+    import json
+    try:
+        user = getattr(g, "user", None)
+
+        log = AuditLog(
+            user_id     = user.id if user else None,
+            user_email  = user.email if user else None,
+            user_name   = user.name if user else None,
+            action      = action,
+            entity_type = entity_type,
+            entity_id   = entity_id,
+            patient_id  = patient_id,
+            details     = json.dumps(details, default=str) if details else None,
+            ip_address  = request.remote_addr if request else None,
+        )
+        db.session.add(log)
+        # NÃO fazer commit aqui — deixar junto com a transação da ação.
+        # Isso garante que se a ação falhar, o log também não é persistido.
+    except Exception as e:
+        print(f"[BioScan] Audit log falhou ({action}): {e}")
 
 
 # ── AUTH ENDPOINTS ────────────────────────────────────────────────────────
@@ -232,6 +263,15 @@ def create_patient():
         patient_id = p.id,
     )
     db.session.add(user)
+
+    log_action(
+        "patient.create",
+        entity_type="patient",
+        entity_id=p.id,
+        patient_id=p.id,
+        details={"name": p.name, "cpf": p.cpf, "email": user.email},
+    )
+
     db.session.commit()
 
     return jsonify({
@@ -260,22 +300,37 @@ def update_patient(pid):
     p = db.get_or_404(Patient, pid)
     data = request.get_json(silent=True) or {}
 
+    # Snapshot dos campos antes da alteração (para log)
+    changed_fields = {}
+
+    def track(field, new_value, old_value):
+        """Registra campo alterado se o valor mudou."""
+        if new_value != old_value:
+            changed_fields[field] = {"from": old_value, "to": new_value}
+
     for field in ("name", "sex", "notes"):
         if field in data:
+            track(field, data[field], getattr(p, field))
             setattr(p, field, data[field])
     if "height_cm" in data:
+        track("height_cm", data["height_cm"], p.height_cm)
         p.height_cm = data["height_cm"]
     if "tags" in data:
-        p.tags = ",".join(data["tags"])
+        new_tags = ",".join(data["tags"])
+        track("tags", new_tags, p.tags)
+        p.tags = new_tags
     if "birth_date" in data and data["birth_date"]:
         new_birth = datetime.strptime(data["birth_date"], "%Y-%m-%d").date()
+        track("birth_date", str(new_birth), str(p.birth_date))
         p.birth_date = new_birth
         # Mantém o User do paciente sincronizado para ele continuar logando
         linked_user = User.query.filter_by(patient_id=p.id, role="patient").first()
         if linked_user:
             linked_user.birth_date = new_birth
     if "phone" in data:
-        p.phone = format_phone(data["phone"]) if data["phone"] else None
+        new_phone = format_phone(data["phone"]) if data["phone"] else None
+        track("phone", new_phone, p.phone)
+        p.phone = new_phone
     if "cpf" in data and data["cpf"]:
         if not validate_cpf(data["cpf"]):
             return jsonify({"error": "CPF inválido"}), 400
@@ -287,6 +342,7 @@ def update_patient(pid):
         ).first()
         if existing:
             return jsonify({"error": "CPF já cadastrado para outro paciente"}), 409
+        track("cpf", cpf_formatted, p.cpf)
         p.cpf = cpf_formatted
 
     # Sincroniza name no User vinculado também
@@ -294,6 +350,15 @@ def update_patient(pid):
         linked_user = User.query.filter_by(patient_id=p.id, role="patient").first()
         if linked_user:
             linked_user.name = data["name"]
+
+    if changed_fields:
+        log_action(
+            "patient.update",
+            entity_type="patient",
+            entity_id=p.id,
+            patient_id=p.id,
+            details={"changes": changed_fields},
+        )
 
     db.session.commit()
     return jsonify(p.to_dict())
@@ -304,10 +369,25 @@ def update_patient(pid):
 def delete_patient(pid):
     p = db.get_or_404(Patient, pid)
 
+    # Snapshot para log antes de deletar
+    snapshot = {
+        "name": p.name,
+        "cpf": p.cpf,
+        "measurements_count": Measurement.query.filter_by(patient_id=p.id).count(),
+    }
+
     # Remove User vinculado ao paciente (para não ficar órfão)
     linked_user = User.query.filter_by(patient_id=p.id, role="patient").first()
     if linked_user:
         db.session.delete(linked_user)
+
+    log_action(
+        "patient.delete",
+        entity_type="patient",
+        entity_id=p.id,
+        patient_id=p.id,
+        details=snapshot,
+    )
 
     db.session.delete(p)
     db.session.commit()
@@ -342,6 +422,16 @@ def add_measurement(pid):
                     measured_at=datetime.now(timezone.utc))
     _fill_measurement(m, data)
     db.session.add(m)
+    db.session.flush()
+
+    log_action(
+        "measurement.create",
+        entity_type="measurement",
+        entity_id=m.id,
+        patient_id=pid,
+        details={"source": "manual", "measured_at": m.measured_at.isoformat()},
+    )
+
     db.session.commit()
     return jsonify(m.to_dict()), 201
 
@@ -350,6 +440,20 @@ def add_measurement(pid):
 @require_role("doctor")
 def delete_measurement(pid, mid):
     m = Measurement.query.filter_by(id=mid, patient_id=pid).first_or_404()
+
+    log_action(
+        "measurement.delete",
+        entity_type="measurement",
+        entity_id=m.id,
+        patient_id=pid,
+        details={
+            "source": m.source,
+            "measured_at": m.measured_at.isoformat(),
+            "weight": m.weight,
+            "fat_pct": m.fat_pct,
+        },
+    )
+
     db.session.delete(m)
     db.session.commit()
     return jsonify({"deleted": mid})
@@ -385,6 +489,20 @@ def import_csv(pid):
         _fill_measurement(m, row)
         db.session.add(m)
         inserted.append(m)
+
+    db.session.flush()
+
+    if inserted:
+        log_action(
+            "measurement.import_csv",
+            entity_type="measurement",
+            patient_id=pid,
+            details={
+                "inserted": len(inserted),
+                "skipped": skipped,
+                "measurement_ids": [m.id for m in inserted],
+            },
+        )
 
     db.session.commit()
     return jsonify({
@@ -446,6 +564,21 @@ def import_pdf(pid):
     m = Measurement(patient_id=pid, source=source, measured_at=measured_at)
     _fill_measurement(m, row)
     db.session.add(m)
+    db.session.flush()
+
+    log_action(
+        "measurement.import_pdf",
+        entity_type="measurement",
+        entity_id=m.id,
+        patient_id=pid,
+        details={
+            "manufacturer": manufacturer,
+            "source": source,
+            "measured_at": m.measured_at.isoformat(),
+            "detected_name": detected_name,
+        },
+    )
+
     db.session.commit()
 
     return jsonify({
@@ -597,6 +730,47 @@ def patient_report_pdf(pid):
         as_attachment=True,
         download_name=filename,
     )
+
+
+# ── AUDIT LOG ENDPOINTS ───────────────────────────────────────────────────
+
+@bioscan_bp.get("/audit-logs")
+@require_role("doctor")
+def list_audit_logs():
+    """
+    Lista os logs de auditoria mais recentes.
+    Query params opcionais:
+    - patient_id: filtra por paciente
+    - action: filtra por tipo de ação (ex: 'patient.delete')
+    - limit: máximo de registros (default 100, max 500)
+    """
+    query = AuditLog.query.order_by(AuditLog.timestamp.desc())
+
+    patient_id = request.args.get("patient_id", type=int)
+    if patient_id:
+        query = query.filter_by(patient_id=patient_id)
+
+    action = request.args.get("action")
+    if action:
+        query = query.filter_by(action=action)
+
+    limit = min(request.args.get("limit", 100, type=int), 500)
+    logs = query.limit(limit).all()
+
+    return jsonify([log.to_dict() for log in logs])
+
+
+@bioscan_bp.get("/patients/<int:pid>/audit-logs")
+@require_role("doctor")
+def patient_audit_logs(pid):
+    """Lista todos os logs de auditoria relacionados a um paciente específico."""
+    db.get_or_404(Patient, pid)
+
+    logs = AuditLog.query.filter_by(patient_id=pid)\
+        .order_by(AuditLog.timestamp.desc())\
+        .limit(200).all()
+
+    return jsonify([log.to_dict() for log in logs])
 
 
 # ── HELPERS ───────────────────────────────────────────────────────────────

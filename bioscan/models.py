@@ -253,3 +253,54 @@ class Measurement(db.Model):
                 "trunk":     self.seg_fat_trunk,
             },
         }
+
+
+# ── AUDIT LOG ─────────────────────────────────────────────────────────────
+
+class AuditLog(db.Model):
+    """
+    Registro de todas as ações de escrita no sistema.
+    Rastreia quem fez o quê em qual entidade e quando.
+    """
+    __tablename__ = "audit_logs"
+
+    id          = db.Column(db.Integer, primary_key=True)
+    timestamp   = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc),
+                            nullable=False, index=True)
+    user_id     = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True, index=True)
+    user_email  = db.Column(db.String(200))       # redundante (snapshot), para caso user seja deletado
+    user_name   = db.Column(db.String(200))
+
+    action      = db.Column(db.String(40), nullable=False, index=True)
+    # Exemplos: patient.create, patient.update, patient.delete,
+    #           measurement.create, measurement.delete,
+    #           measurement.import_csv, measurement.import_pdf
+
+    entity_type = db.Column(db.String(40))        # "patient", "measurement"
+    entity_id   = db.Column(db.Integer, index=True)
+    patient_id  = db.Column(db.Integer, index=True)  # sempre presente para filtrar por paciente
+
+    details     = db.Column(db.Text)              # JSON com contexto (campos alterados, etc.)
+    ip_address  = db.Column(db.String(45))        # IPv4/IPv6
+
+    def to_dict(self):
+        import json
+        details_parsed = None
+        if self.details:
+            try:
+                details_parsed = json.loads(self.details)
+            except (json.JSONDecodeError, TypeError):
+                details_parsed = self.details
+        return {
+            "id":          self.id,
+            "timestamp":   self.timestamp.isoformat(),
+            "user_id":     self.user_id,
+            "user_email":  self.user_email,
+            "user_name":   self.user_name,
+            "action":      self.action,
+            "entity_type": self.entity_type,
+            "entity_id":   self.entity_id,
+            "patient_id":  self.patient_id,
+            "details":     details_parsed,
+            "ip_address":  self.ip_address,
+        }
