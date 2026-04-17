@@ -517,6 +517,15 @@ function metaStatus(v, age) { const d = v - age; return d <= 0 ? 'ok' : d <= 5 ?
 function bmiStatus(v) { return v < 25 ? 'ok' : v < 30 ? 'warn' : 'alert'; }
 function bl(s) { return s === 'ok' ? 'Normal' : s === 'warn' ? 'Atenção' : 'Elevado'; }
 
+// Formata uma data ISO (YYYY-MM-DD ou YYYY-MM-DDTHH:MM:SS...) para DD/MM/YYYY
+function fmtDateBR(iso) {
+  if (!iso) return '—';
+  const datePart = iso.substring(0, 10);
+  const [y, m, d] = datePart.split('-');
+  if (!y || !m || !d) return datePart;
+  return `${d}/${m}/${y}`;
+}
+
 // ── MÁSCARAS ──────────────────────────────────────────────────────────────
 function maskCPF(v) {
   v = v.replace(/\D/g,'').slice(0,11);
@@ -969,7 +978,7 @@ function renderEvolution() {
   }
 
   const rows = [...ms].reverse().map(m => `<tr>
-    <td>${m.measured_at?.substring(0,10) ?? '—'}</td>
+    <td>${fmtDateBR(m.measured_at)}</td>
     <td>${m.weight != null ? m.weight.toFixed(1) + ' kg' : '—'}</td>
     <td>${m.fat_pct != null ? `<span class="badge ${fatStatus(m.fat_pct, currentPatient.sex)}">${m.fat_pct.toFixed(1)}%</span>` : '—'}</td>
     <td>${m.muscle_kg != null ? m.muscle_kg.toFixed(2) + ' kg' : '—'}</td>
@@ -1061,16 +1070,28 @@ function renderRangeBar(value, rangeMin, rangeMax, unit = '', label = '') {
     return `<div style="padding:1rem;color:#bbb;font-size:var(--fs-sm);text-align:center">—</div>`;
   }
 
-  // Escala: queremos mostrar de (min * 0.6) até (max * 1.5), aproximadamente
-  const scaleMin = rangeMin * 0.6;
-  const scaleMax = rangeMax * 1.8;
-  const clamp = (x) => Math.max(scaleMin, Math.min(scaleMax, x));
+  // ZONAS FIXAS: abaixo 0-30%, normal 30-60%, acima 60-100% (para alinhamento visual)
+  const ZONE_LOW  = 30;
+  const ZONE_HIGH = 60;
 
-  const pct = (x) => ((clamp(x) - scaleMin) / (scaleMax - scaleMin)) * 100;
-
-  const leftEnd  = pct(rangeMin);
-  const rightEnd = pct(rangeMax);
-  const markerPos = pct(value);
+  // Posição do marcador dentro da zona apropriada
+  let markerPos;
+  if (value < rangeMin) {
+    // Zona "abaixo" (0-30%): interpolado de 0 até ZONE_LOW
+    const range = rangeMin;       // de 0 a rangeMin
+    const t = Math.max(0, value) / range;
+    markerPos = t * ZONE_LOW;
+  } else if (value <= rangeMax) {
+    // Zona "normal" (30-60%): interpolado de ZONE_LOW até ZONE_HIGH
+    const t = (value - rangeMin) / (rangeMax - rangeMin);
+    markerPos = ZONE_LOW + t * (ZONE_HIGH - ZONE_LOW);
+  } else {
+    // Zona "acima" (60-100%): interpolado de ZONE_HIGH até 100
+    // Consideramos que "100%" corresponde a rangeMax * 2 (dobro do limite)
+    const extent = rangeMax;      // faixa acima do normal
+    const t = Math.min(1, (value - rangeMax) / extent);
+    markerPos = ZONE_HIGH + t * (100 - ZONE_HIGH);
+  }
 
   // Classificação
   let status, statusColor;
@@ -1089,18 +1110,18 @@ function renderRangeBar(value, rangeMin, rangeMax, unit = '', label = '') {
       </div>` : ''}
       <div style="position:relative;height:28px;border-radius:6px;overflow:hidden;background:linear-gradient(to right,
         #a8c9e8 0%,
-        #a8c9e8 ${leftEnd}%,
-        #a8d89b ${leftEnd}%,
-        #a8d89b ${rightEnd}%,
-        #e8a89b ${rightEnd}%,
+        #a8c9e8 ${ZONE_LOW}%,
+        #a8d89b ${ZONE_LOW}%,
+        #a8d89b ${ZONE_HIGH}%,
+        #e8a89b ${ZONE_HIGH}%,
         #e8a89b 100%
       )">
         <div style="position:absolute;top:-2px;bottom:-2px;left:calc(${markerPos}% - 2px);width:4px;background:#1a1a18;border-radius:2px;box-shadow:0 0 0 2px white"></div>
       </div>
-      <div style="display:flex;justify-content:space-between;margin-top:4px;font-size:10px;color:#999">
-        <span>Abaixo</span>
-        <span style="margin-left:${leftEnd}%">Normal</span>
-        <span>Acima</span>
+      <div style="position:relative;height:14px;margin-top:4px;font-size:var(--fs-xs);color:#999">
+        <span style="position:absolute;left:${ZONE_LOW/2}%;transform:translateX(-50%)">Abaixo</span>
+        <span style="position:absolute;left:${(ZONE_LOW + ZONE_HIGH)/2}%;transform:translateX(-50%)">Normal</span>
+        <span style="position:absolute;left:${(ZONE_HIGH + 100)/2}%;transform:translateX(-50%)">Acima</span>
       </div>
     </div>`;
 }
@@ -1176,7 +1197,7 @@ function renderObesityBars(m, patient) {
 }
 
 function renderCharts(ms) {
-  const labels = ms.map(m => m.measured_at?.substring(0,10));
+  const labels = ms.map(m => fmtDateBR(m.measured_at));
 
   const base = {
     type: 'line',
@@ -1219,7 +1240,7 @@ function renderSegments() {
 
   document.getElementById('content').innerHTML = `
     <div class="card">
-      <div class="card-title">Análise segmental <small>medição ${m.measured_at?.substring(0,10)}</small></div>
+      <div class="card-title">Análise segmental <small>medição ${fmtDateBR(m.measured_at)}</small></div>
       <div id="body-svg"></div>
     </div>
     <div class="card">
