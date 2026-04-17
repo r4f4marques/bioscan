@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>BioScan Healthspan</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f5f4f0;color:#1a1a18;font-size:14px}
@@ -24,6 +25,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .content{padding:1.5rem}
 .grid{display:grid;gap:10px;margin-bottom:1.25rem}
 .grid-4{grid-template-columns:repeat(4,1fr)}
+.grid-3{grid-template-columns:repeat(3,1fr)}
 .grid-2{grid-template-columns:1fr 1fr}
 .mcard{background:#f5f4f0;border-radius:10px;padding:.85rem 1rem}
 .mcard-label{font-size:11px;color:#999;margin-bottom:5px}
@@ -48,10 +50,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .btn:hover{background:#f5f4f0}
 .btn-primary{background:#1a1a18;color:#fff;border-color:#1a1a18}
 .btn-primary:hover{opacity:.85}
-.tabs{display:flex;gap:0;margin-bottom:1.25rem;border-bottom:1px solid rgba(0,0,0,0.08)}
-.tab{padding:7px 16px;font-size:13px;cursor:pointer;color:#999;border-bottom:2px solid transparent;margin-bottom:-1px;transition:all .1s}
-.tab.active{color:#1a1a18;border-bottom-color:#1a1a18;font-weight:500}
-.tab:hover{color:#1a1a18}
 .upload-zone{border:1.5px dashed rgba(0,0,0,0.15);border-radius:10px;padding:2rem;text-align:center;cursor:pointer;background:#fafaf8;transition:border-color .15s}
 .upload-zone:hover{border-color:rgba(0,0,0,0.3)}
 .evo-tbl{width:100%;border-collapse:collapse;font-size:12px}
@@ -62,18 +60,26 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .age-row{display:flex;align-items:center;gap:16px;padding:.5rem 0}
 .age-num{font-size:32px;font-weight:600;line-height:1;letter-spacing:-1px}
 .age-lbl{font-size:11px;color:#bbb;margin-top:2px}
-.seg-group{margin-bottom:1rem}
-.seg-name{font-size:12px;font-weight:500;margin-bottom:4px;color:#666}
-.bar-bg{height:5px;background:#eee;border-radius:3px;overflow:hidden;margin-bottom:3px}
-.bar-fill{height:100%;border-radius:3px}
-.bar-label{display:flex;justify-content:space-between;font-size:10px;color:#bbb;margin-bottom:2px}
 .loading{text-align:center;padding:3rem;color:#bbb;font-size:13px}
 .form-row{margin-bottom:.75rem}
 .form-row label{display:block;font-size:12px;color:#666;margin-bottom:3px}
+.form-row label small{color:#bbb;font-weight:400}
 .form-row input,.form-row select{width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px;color:#1a1a18}
 .form-row input:focus,.form-row select:focus{outline:none;border-color:#555}
 .success-box{background:#e8f5e0;border-radius:8px;padding:.75rem 1rem;font-size:13px;color:#2d6a1f;margin-top:.75rem}
 .info-box{background:#f0f4ff;border-radius:8px;padding:.75rem 1rem;font-size:12px;color:#1a4fa8;margin-top:.75rem;line-height:1.6}
+.error-box{color:#c0392b;font-size:12px;padding:.5rem .75rem;background:#fde8e8;border-radius:6px;margin-top:.5rem}
+.chart-container{position:relative;height:200px;margin-top:.5rem}
+.body-diagram{display:flex;justify-content:center;padding:1rem}
+.body-diagram svg{max-width:340px;width:100%}
+.body-legend{display:flex;gap:1rem;justify-content:center;font-size:11px;color:#888;margin-top:.75rem;flex-wrap:wrap}
+.body-legend-item{display:flex;align-items:center;gap:4px}
+.body-legend-dot{width:10px;height:10px;border-radius:2px}
+.seg-label{font-size:10px;font-weight:500;fill:#1a1a18}
+.seg-label-sub{font-size:9px;fill:#666}
+.body-toggle{display:flex;gap:0;margin-bottom:.75rem;border:1px solid #eee;border-radius:6px;overflow:hidden;max-width:260px;margin-left:auto;margin-right:auto}
+.body-toggle-btn{flex:1;padding:5px;font-size:11px;cursor:pointer;border:none;background:#f5f4f0;color:#999;transition:all .15s}
+.body-toggle-btn.active{background:#1a1a18;color:#fff}
 </style>
 </head>
 <body>
@@ -114,10 +120,10 @@ let token = localStorage.getItem('bioscan_token');
 let user  = JSON.parse(localStorage.getItem('bioscan_user') || '{}');
 let currentPatient = null;
 let isDoctor = false;
+let charts = {};
 
 if (!token) window.location.href = '/';
 
-// ── INIT ──────────────────────────────────────────────────────────────────
 isDoctor = user.role === 'doctor';
 document.getElementById('footer-name').textContent = user.name || user.email || '—';
 document.getElementById('footer-role').textContent = isDoctor ? 'Médico' : 'Paciente';
@@ -152,7 +158,13 @@ function setNav(id) {
   if (el) el.classList.add('active');
 }
 
+function destroyCharts() {
+  Object.values(charts).forEach(c => { try { c.destroy(); } catch(e){} });
+  charts = {};
+}
+
 function showScreen(screen) {
+  destroyCharts();
   document.getElementById('nav-patient-section').style.display = 'none';
   document.getElementById('topbar-actions').innerHTML = '';
   currentPatient = null;
@@ -187,6 +199,7 @@ function showPatient(p) {
 }
 
 function showTab(tab) {
+  destroyCharts();
   ['overview','evolution','segments'].forEach(t => {
     const el = document.getElementById('nav-' + t);
     if (el) el.classList.toggle('active', t === tab);
@@ -206,15 +219,28 @@ function metaStatus(v, age) { const d = v - age; return d <= 0 ? 'ok' : d <= 5 ?
 function bmiStatus(v) { return v < 25 ? 'ok' : v < 30 ? 'warn' : 'alert'; }
 function bl(s) { return s === 'ok' ? 'Normal' : s === 'warn' ? 'Atenção' : 'Elevado'; }
 
+// ── MÁSCARAS ──────────────────────────────────────────────────────────────
+function maskCPF(v) {
+  v = v.replace(/\D/g,'').slice(0,11);
+  if (v.length > 9)      return v.replace(/(\d{3})(\d{3})(\d{3})(\d{1,2}).*/, '$1.$2.$3-$4');
+  else if (v.length > 6) return v.replace(/(\d{3})(\d{3})(\d{1,3}).*/, '$1.$2.$3');
+  else if (v.length > 3) return v.replace(/(\d{3})(\d{1,3}).*/, '$1.$2');
+  return v;
+}
+function maskPhone(v) {
+  v = v.replace(/\D/g,'').slice(0,11);
+  if (v.length > 10)     return v.replace(/(\d{2})(\d{5})(\d{1,4}).*/, '($1) $2-$3');
+  else if (v.length > 6) return v.replace(/(\d{2})(\d{4,5})(\d{1,4}).*/, '($1) $2-$3');
+  else if (v.length > 2) return v.replace(/(\d{2})(\d{1,5}).*/, '($1) $2');
+  else if (v.length > 0) return v.replace(/(\d{1,2}).*/, '($1');
+  return v;
+}
+
 // ── PATIENTS LIST ─────────────────────────────────────────────────────────
 async function loadPatients() {
   document.getElementById('content').innerHTML = '<div class="loading">Carregando...</div>';
 
-  let patients;
-  if (isDoctor) {
-    patients = await api('GET', '/bioscan/patients');
-  } else {
-    // Paciente vê apenas seu próprio perfil
+  if (!isDoctor) {
     const pid = user.patient_id;
     if (!pid) {
       document.getElementById('content').innerHTML = '<div class="loading">Perfil não encontrado.</div>';
@@ -225,6 +251,7 @@ async function loadPatients() {
     return;
   }
 
+  const patients = await api('GET', '/bioscan/patients');
   if (!patients) return;
 
   if (!patients.length) {
@@ -240,7 +267,7 @@ async function loadPatients() {
   const rows = patients.map(p => {
     const l = p.latest || {};
     return `<div class="pt-row" onclick="selectPatient(${p.id})">
-      <div><div class="pt-name">${p.name}</div><div class="pt-sub">${p.age ? p.age + 'a' : '—'} · ${p.sex === 'M' ? 'Masc' : p.sex === 'F' ? 'Fem' : '—'}</div></div>
+      <div><div class="pt-name">${p.name}</div><div class="pt-sub">${p.age ? p.age + 'a' : '—'} · ${p.sex === 'M' ? 'Masc' : p.sex === 'F' ? 'Fem' : '—'} ${p.cpf ? '· ' + p.cpf : ''}</div></div>
       <div>${l.bmi ? `<span class="badge ${bmiStatus(l.bmi)}">${l.bmi.toFixed(1)}</span>` : '—'}</div>
       <div>${l.fat_pct !== undefined ? `<span class="badge ${fatStatus(l.fat_pct, p.sex)}">${l.fat_pct.toFixed(1)}%</span>` : '—'}</div>
       <div>${l.visceral !== undefined ? `<span class="badge ${viscStatus(l.visceral)}">${l.visceral}</span>` : '—'}</div>
@@ -263,13 +290,17 @@ async function selectPatient(id) {
 // ── NEW PATIENT ───────────────────────────────────────────────────────────
 function renderNewPatient() {
   document.getElementById('content').innerHTML = `
-    <div style="max-width:500px">
+    <div style="max-width:560px">
       <div class="card">
         <div class="card-title">Dados do paciente</div>
         <div class="form-row"><label>Nome completo *</label><input type="text" id="np-name" placeholder="Nome do paciente"></div>
+        <div class="grid grid-2">
+          <div class="form-row"><label>CPF *</label><input type="text" id="np-cpf" placeholder="000.000.000-00" maxlength="14"></div>
+          <div class="form-row"><label>Celular <small>(opcional)</small></label><input type="text" id="np-phone" placeholder="(11) 91234-5678" maxlength="15"></div>
+        </div>
         <div class="form-row"><label>E-mail *</label><input type="email" id="np-email" placeholder="email@exemplo.com"></div>
-        <div class="form-row"><label>Data de nascimento * <small style="color:#bbb">(usada para login)</small></label><input type="date" id="np-birth"></div>
-        <div class="grid grid-2" style="margin-top:.75rem">
+        <div class="form-row"><label>Data de nascimento * <small>(usada para login)</small></label><input type="date" id="np-birth"></div>
+        <div class="grid grid-2">
           <div class="form-row"><label>Sexo</label>
             <select id="np-sex"><option value="">—</option><option value="M">Masculino</option><option value="F">Feminino</option></select>
           </div>
@@ -280,24 +311,28 @@ function renderNewPatient() {
         <button class="btn btn-primary" style="width:100%;margin-top:1rem" onclick="createPatient()">Cadastrar paciente</button>
       </div>
     </div>`;
+
+  document.getElementById('np-cpf').oninput   = e => e.target.value = maskCPF(e.target.value);
+  document.getElementById('np-phone').oninput = e => e.target.value = maskPhone(e.target.value);
 }
 
 async function createPatient() {
   const result = document.getElementById('np-result');
   const name   = document.getElementById('np-name').value.trim();
+  const cpf    = document.getElementById('np-cpf').value.trim();
+  const phone  = document.getElementById('np-phone').value.trim();
   const email  = document.getElementById('np-email').value.trim();
   const birth  = document.getElementById('np-birth').value;
 
-  if (!name || !email || !birth) {
-    result.innerHTML = '<div style="color:#c0392b;font-size:12px;margin-top:.5rem">Preencha nome, e-mail e data de nascimento.</div>';
+  if (!name || !email || !birth || !cpf) {
+    result.innerHTML = '<div class="error-box">Preencha nome, CPF, e-mail e data de nascimento.</div>';
     return;
   }
 
   result.innerHTML = '<div style="color:#999;font-size:12px;margin-top:.5rem">Cadastrando...</div>';
 
   const data = await api('POST', '/bioscan/patients', {
-    name,
-    email,
+    name, email, cpf, phone: phone || null,
     birth_date: birth,
     sex:        document.getElementById('np-sex').value || null,
     height_cm:  parseFloat(document.getElementById('np-height').value) || null,
@@ -307,7 +342,7 @@ async function createPatient() {
   if (!data) return;
 
   if (data.error) {
-    result.innerHTML = `<div style="color:#c0392b;font-size:12px;margin-top:.5rem">${data.error}</div>`;
+    result.innerHTML = `<div class="error-box">${data.error}</div>`;
   } else {
     result.innerHTML = `
       <div class="success-box">✓ Paciente cadastrado com sucesso!</div>
@@ -414,7 +449,25 @@ function renderEvolution() {
     <td>${m.bmr?.toFixed(0)} kcal</td>
   </tr>`).join('');
 
-  document.getElementById('content').innerHTML = `
+  const chartCards = ms.length >= 2 ? `
+    <div class="grid grid-2">
+      <div class="card"><div class="card-title">Peso <small>${ms.length} medições</small></div><div class="chart-container"><canvas id="ch-weight"></canvas></div></div>
+      <div class="card"><div class="card-title">Gordura corporal</div><div class="chart-container"><canvas id="ch-fat"></canvas></div></div>
+    </div>
+    <div class="grid grid-2">
+      <div class="card"><div class="card-title">Massa muscular</div><div class="chart-container"><canvas id="ch-muscle"></canvas></div></div>
+      <div class="card"><div class="card-title">Gordura visceral</div><div class="chart-container"><canvas id="ch-visc"></canvas></div></div>
+    </div>
+    <div class="grid grid-2">
+      <div class="card"><div class="card-title">Idade metabólica</div><div class="chart-container"><canvas id="ch-meta"></canvas></div></div>
+      <div class="card"><div class="card-title">Metabolismo basal</div><div class="chart-container"><canvas id="ch-bmr"></canvas></div></div>
+    </div>` : `
+    <div class="card" style="text-align:center;color:#bbb;padding:2rem">
+      Necessárias pelo menos 2 medições para gerar gráficos evolutivos.<br>
+      <small>Medição atual: ${ms.length}</small>
+    </div>`;
+
+  document.getElementById('content').innerHTML = chartCards + `
     <div class="card">
       <div class="card-title">Histórico de medições <small>${ms.length} registro(s)</small></div>
       <table class="evo-tbl">
@@ -422,9 +475,44 @@ function renderEvolution() {
         <tbody>${rows}</tbody>
       </table>
     </div>`;
+
+  if (ms.length >= 2) renderCharts(ms);
 }
 
-// ── SEGMENTS ──────────────────────────────────────────────────────────────
+function renderCharts(ms) {
+  const labels = ms.map(m => m.measured_at?.substring(0,10));
+
+  const base = {
+    type: 'line',
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { grid: { display: false }, ticks: { font: { size: 10 }, color: '#999' } },
+        y: { grid: { color: '#f0f0f0' }, ticks: { font: { size: 10 }, color: '#999' } }
+      },
+      elements: { point: { radius: 3, hoverRadius: 5 }, line: { tension: 0.3, borderWidth: 2 } }
+    }
+  };
+
+  const mkChart = (id, values, color) => {
+    const ctx = document.getElementById(id);
+    if (!ctx) return;
+    charts[id] = new Chart(ctx, {
+      ...base,
+      data: { labels, datasets: [{ data: values, borderColor: color, backgroundColor: color + '20', fill: true }] }
+    });
+  };
+
+  mkChart('ch-weight', ms.map(m => m.weight),    '#1a6fa8');
+  mkChart('ch-fat',    ms.map(m => m.fat_pct),   '#e67e22');
+  mkChart('ch-muscle', ms.map(m => m.muscle_kg), '#2d6a1f');
+  mkChart('ch-visc',   ms.map(m => m.visceral),  '#c0392b');
+  mkChart('ch-meta',   ms.map(m => m.meta_age),  '#8e44ad');
+  mkChart('ch-bmr',    ms.map(m => m.bmr),       '#16a085');
+}
+
+// ── SEGMENTS — Corpo humano ──────────────────────────────────────────────
 function renderSegments() {
   const ms = currentPatient.measurements || [];
   if (!ms.length) {
@@ -432,34 +520,141 @@ function renderSegments() {
     return;
   }
   const m = ms[ms.length - 1];
-  const sf = m.seg_fat || {};
-  const sm = m.seg_musc || {};
-  const sq = m.seg_qual || {};
-
-  const segs = [
-    {name:'Braço direito', fat:sf.right_arm, musc:sm.right_arm, qual:sq.right_arm},
-    {name:'Braço esquerdo', fat:sf.left_arm, musc:sm.left_arm, qual:sq.left_arm},
-    {name:'Perna direita', fat:sf.right_leg, musc:sm.right_leg, qual:sq.right_leg},
-    {name:'Perna esquerda', fat:sf.left_leg, musc:sm.left_leg, qual:sq.left_leg},
-    {name:'Tronco', fat:sf.trunk, musc:sm.trunk, qual:sq.trunk},
-  ];
-  const maxMusc = Math.max(...segs.map(s => s.musc || 0));
-
-  const segHtml = segs.map(s => `
-    <div class="seg-group">
-      <div class="seg-name">${s.name}</div>
-      <div class="bar-label"><span>Gordura</span><span>${s.fat != null ? s.fat.toFixed(1) + '%' : '—'}</span></div>
-      <div class="bar-bg"><div class="bar-fill" style="width:${s.fat != null ? Math.min(100,s.fat/50*100).toFixed(0) : 0}%;background:#e74c3c"></div></div>
-      <div class="bar-label"><span>Músculo</span><span>${s.musc != null ? s.musc.toFixed(2) + ' kg' : '—'}</span></div>
-      <div class="bar-bg"><div class="bar-fill" style="width:${s.musc != null && maxMusc > 0 ? Math.min(100,s.musc/maxMusc*100).toFixed(0) : 0}%;background:#2980b9"></div></div>
-      ${s.qual != null ? `<div style="font-size:10px;color:#bbb">Qualidade: <span class="badge ok">${s.qual}</span></div>` : '<div style="font-size:10px;color:#ddd">Qualidade não disponível</div>'}
-    </div>`).join('');
 
   document.getElementById('content').innerHTML = `
-    <div class="card">
-      <div class="card-title">Análise segmental <small>medição ${m.measured_at?.substring(0,10)}</small></div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.5rem">${segHtml}</div>
+    <div class="grid grid-2">
+      <div class="card">
+        <div class="card-title">Distribuição corporal <small>medição ${m.measured_at?.substring(0,10)}</small></div>
+        <div class="body-toggle">
+          <button class="body-toggle-btn active" id="tog-fat"   onclick="showBodyMode('fat')">Gordura %</button>
+          <button class="body-toggle-btn"        id="tog-musc"  onclick="showBodyMode('musc')">Músculo kg</button>
+        </div>
+        <div id="body-svg" class="body-diagram"></div>
+        <div class="body-legend" id="body-legend"></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Valores por segmento</div>
+        <div id="seg-detail"></div>
+      </div>
     </div>`;
+
+  window._bodyData = m;
+  showBodyMode('fat');
+  renderSegDetail(m);
+}
+
+function showBodyMode(mode) {
+  const m = window._bodyData;
+  document.getElementById('tog-fat').classList.toggle('active', mode === 'fat');
+  document.getElementById('tog-musc').classList.toggle('active', mode === 'musc');
+
+  const data = mode === 'fat' ? m.seg_fat : m.seg_musc;
+  const unit = mode === 'fat' ? '%' : 'kg';
+
+  // Normalizar para escala de cor (0-100%)
+  const values = Object.values(data).filter(v => v != null);
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const range = max - min || 1;
+
+  const colorFor = (v) => {
+    if (v == null) return '#eee';
+    const t = (v - min) / range;
+    if (mode === 'fat') {
+      // Gordura: verde (baixo) → amarelo → vermelho (alto)
+      if (t < 0.5) {
+        const k = t * 2;
+        return `rgb(${Math.round(45 + k*200)}, ${Math.round(106 + k*50)}, ${Math.round(31 + k*0)})`;
+      } else {
+        const k = (t - 0.5) * 2;
+        return `rgb(${Math.round(245 - k*50)}, ${Math.round(156 - k*120)}, ${Math.round(31 - k*0)})`;
+      }
+    } else {
+      // Músculo: azul claro (baixo) → azul escuro (alto) — mais é melhor
+      const k = t;
+      return `rgb(${Math.round(180 - k*140)}, ${Math.round(210 - k*140)}, ${Math.round(235 - k*50)})`;
+    }
+  };
+
+  const fmt = v => v == null ? '—' : v.toFixed(mode === 'fat' ? 1 : 2);
+
+  // SVG do corpo humano — vista frontal simplificada
+  const svg = `
+    <svg viewBox="0 0 280 420" xmlns="http://www.w3.org/2000/svg">
+      <!-- Cabeça (neutra) -->
+      <circle cx="140" cy="40" r="28" fill="#d5d4ce" stroke="#bbb" stroke-width="1"/>
+      <!-- Pescoço -->
+      <rect x="130" y="62" width="20" height="18" fill="#d5d4ce" stroke="#bbb" stroke-width="1"/>
+
+      <!-- Tronco -->
+      <path d="M 100 80 L 180 80 L 195 200 L 170 260 L 110 260 L 85 200 Z"
+            fill="${colorFor(data.trunk)}" stroke="#888" stroke-width="1.2"/>
+      <text x="140" y="165" text-anchor="middle" class="seg-label" fill="#1a1a18">Tronco</text>
+      <text x="140" y="182" text-anchor="middle" class="seg-label-sub" fill="#444">${fmt(data.trunk)}${unit}</text>
+
+      <!-- Braço direito (esquerda na tela) -->
+      <path d="M 100 82 L 72 92 L 55 200 L 45 260 L 55 265 L 72 210 L 92 110 Z"
+            fill="${colorFor(data.right_arm)}" stroke="#888" stroke-width="1.2"/>
+      <text x="65" y="155" text-anchor="middle" class="seg-label" fill="#1a1a18">Braço D</text>
+      <text x="65" y="170" text-anchor="middle" class="seg-label-sub" fill="#444">${fmt(data.right_arm)}${unit}</text>
+
+      <!-- Braço esquerdo (direita na tela) -->
+      <path d="M 180 82 L 208 92 L 225 200 L 235 260 L 225 265 L 208 210 L 188 110 Z"
+            fill="${colorFor(data.left_arm)}" stroke="#888" stroke-width="1.2"/>
+      <text x="215" y="155" text-anchor="middle" class="seg-label" fill="#1a1a18">Braço E</text>
+      <text x="215" y="170" text-anchor="middle" class="seg-label-sub" fill="#444">${fmt(data.left_arm)}${unit}</text>
+
+      <!-- Perna direita -->
+      <path d="M 110 260 L 135 260 L 130 390 L 105 395 Z"
+            fill="${colorFor(data.right_leg)}" stroke="#888" stroke-width="1.2"/>
+      <text x="118" y="325" text-anchor="middle" class="seg-label" fill="#1a1a18">Perna D</text>
+      <text x="118" y="340" text-anchor="middle" class="seg-label-sub" fill="#444">${fmt(data.right_leg)}${unit}</text>
+
+      <!-- Perna esquerda -->
+      <path d="M 145 260 L 170 260 L 175 395 L 150 390 Z"
+            fill="${colorFor(data.left_leg)}" stroke="#888" stroke-width="1.2"/>
+      <text x="160" y="325" text-anchor="middle" class="seg-label" fill="#1a1a18">Perna E</text>
+      <text x="160" y="340" text-anchor="middle" class="seg-label-sub" fill="#444">${fmt(data.left_leg)}${unit}</text>
+
+      <!-- Pés -->
+      <ellipse cx="108" cy="402" rx="15" ry="6" fill="#d5d4ce" stroke="#bbb"/>
+      <ellipse cx="172" cy="402" rx="15" ry="6" fill="#d5d4ce" stroke="#bbb"/>
+    </svg>`;
+
+  document.getElementById('body-svg').innerHTML = svg;
+
+  document.getElementById('body-legend').innerHTML = `
+    <div class="body-legend-item"><div class="body-legend-dot" style="background:${colorFor(min)}"></div>Menor (${fmt(min)}${unit})</div>
+    <div class="body-legend-item"><div class="body-legend-dot" style="background:${colorFor((min+max)/2)}"></div>Médio</div>
+    <div class="body-legend-item"><div class="body-legend-dot" style="background:${colorFor(max)}"></div>Maior (${fmt(max)}${unit})</div>`;
+}
+
+function renderSegDetail(m) {
+  const segs = [
+    {name:'Braço direito',  key:'right_arm'},
+    {name:'Braço esquerdo', key:'left_arm'},
+    {name:'Perna direita',  key:'right_leg'},
+    {name:'Perna esquerda', key:'left_leg'},
+    {name:'Tronco',         key:'trunk'},
+  ];
+
+  const rows = segs.map(s => {
+    const f = m.seg_fat[s.key];
+    const mc = m.seg_musc[s.key];
+    const q = m.seg_qual[s.key];
+    return `<tr>
+      <td style="font-weight:500">${s.name}</td>
+      <td>${f != null ? f.toFixed(1) + '%' : '—'}</td>
+      <td>${mc != null ? mc.toFixed(2) + ' kg' : '—'}</td>
+      <td>${q != null ? `<span class="badge ok">${q}</span>` : '—'}</td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('seg-detail').innerHTML = `
+    <table class="evo-tbl">
+      <thead><tr><th>Segmento</th><th>Gordura</th><th>Músculo</th><th>Qualidade</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
 }
 
 // ── UPLOAD ────────────────────────────────────────────────────────────────
@@ -469,7 +664,7 @@ function renderUpload() {
       <div class="card">
         <div class="card-title">Importar CSV Tanita</div>
         <div class="form-row"><label>ID do paciente *</label>
-          <input type="number" id="upload-pid" placeholder="ID do paciente (ex: 1)">
+          <input type="number" id="upload-pid" placeholder="ID do paciente">
         </div>
         <div class="upload-zone" onclick="openCSVPicker()">
           <div style="font-size:22px;margin-bottom:.5rem">↑</div>
@@ -480,7 +675,7 @@ function renderUpload() {
         <div id="upload-result"></div>
       </div>
       <div class="card">
-        <div class="card-title">Pacientes cadastrados</div>
+        <div class="card-title">Pacientes cadastrados <small>(clique para selecionar)</small></div>
         <div id="upload-patients"><div class="loading" style="padding:1rem">Carregando...</div></div>
       </div>
     </div>`;
@@ -491,7 +686,7 @@ async function loadUploadPatients() {
   const ps = await api('GET', '/bioscan/patients');
   if (!ps) return;
   const html = ps.length
-    ? ps.map(p => `<div style="padding:.4rem 0;font-size:13px;border-bottom:1px solid #f0f0f0;cursor:pointer" onclick="document.getElementById('upload-pid').value=${p.id}"><strong>ID ${p.id}</strong> — ${p.name}</div>`).join('')
+    ? ps.map(p => `<div style="padding:.4rem 0;font-size:13px;border-bottom:1px solid #f0f0f0;cursor:pointer" onclick="document.getElementById('upload-pid').value=${p.id}"><strong>ID ${p.id}</strong> — ${p.name}${p.cpf ? ' · ' + p.cpf : ''}</div>`).join('')
     : '<div style="color:#bbb;font-size:13px">Nenhum paciente cadastrado.</div>';
   document.getElementById('upload-patients').innerHTML = html;
 }
@@ -500,7 +695,7 @@ function openCSVPicker() {
   const pid = document.getElementById('upload-pid').value;
   const result = document.getElementById('upload-result');
   if (!pid) {
-    result.innerHTML = '<div style="color:#c0392b;font-size:12px;margin-top:.5rem">Informe o ID do paciente antes de selecionar o arquivo.</div>';
+    result.innerHTML = '<div class="error-box">Informe o ID do paciente antes de selecionar o arquivo.</div>';
     return;
   }
   result.innerHTML = '';
@@ -521,16 +716,15 @@ async function uploadCSV(input) {
   if (!data) return;
 
   if (data.error) {
-    result.innerHTML = `<div style="color:#c0392b;font-size:12px;padding:.5rem;background:#fde8e8;border-radius:6px;margin-top:.5rem">${data.error}</div>`;
+    result.innerHTML = `<div class="error-box">${data.error}</div>`;
   } else {
-    result.innerHTML = `<div style="color:#2d6a1f;font-size:12px;padding:.5rem;background:#e8f5e0;border-radius:6px;margin-top:.5rem">
+    result.innerHTML = `<div class="success-box">
       ✓ ${data.inserted} medição(ões) importada(s) · ${data.skipped} ignorada(s) (duplicata)
     </div>`;
   }
   input.value = '';
 }
 
-// ── START ─────────────────────────────────────────────────────────────────
 showScreen('list');
 </script>
 </body>
