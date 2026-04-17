@@ -256,14 +256,33 @@ def update_patient(pid):
         p.height_cm = data["height_cm"]
     if "tags" in data:
         p.tags = ",".join(data["tags"])
-    if "birth_date" in data:
-        p.birth_date = datetime.strptime(data["birth_date"], "%Y-%m-%d").date()
+    if "birth_date" in data and data["birth_date"]:
+        new_birth = datetime.strptime(data["birth_date"], "%Y-%m-%d").date()
+        p.birth_date = new_birth
+        # Mantém o User do paciente sincronizado para ele continuar logando
+        linked_user = User.query.filter_by(patient_id=p.id, role="patient").first()
+        if linked_user:
+            linked_user.birth_date = new_birth
     if "phone" in data:
         p.phone = format_phone(data["phone"]) if data["phone"] else None
-    if "cpf" in data:
+    if "cpf" in data and data["cpf"]:
         if not validate_cpf(data["cpf"]):
             return jsonify({"error": "CPF inválido"}), 400
-        p.cpf = format_cpf(data["cpf"])
+        cpf_formatted = format_cpf(data["cpf"])
+        # Verifica se o CPF novo já pertence a outro paciente
+        existing = Patient.query.filter(
+            Patient.cpf == cpf_formatted,
+            Patient.id != p.id
+        ).first()
+        if existing:
+            return jsonify({"error": "CPF já cadastrado para outro paciente"}), 409
+        p.cpf = cpf_formatted
+
+    # Sincroniza name no User vinculado também
+    if "name" in data:
+        linked_user = User.query.filter_by(patient_id=p.id, role="patient").first()
+        if linked_user:
+            linked_user.name = data["name"]
 
     db.session.commit()
     return jsonify(p.to_dict())
@@ -273,6 +292,12 @@ def update_patient(pid):
 @require_role("doctor")
 def delete_patient(pid):
     p = db.get_or_404(Patient, pid)
+
+    # Remove User vinculado ao paciente (para não ficar órfão)
+    linked_user = User.query.filter_by(patient_id=p.id, role="patient").first()
+    if linked_user:
+        db.session.delete(linked_user)
+
     db.session.delete(p)
     db.session.commit()
     return jsonify({"deleted": pid})

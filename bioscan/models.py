@@ -17,16 +17,14 @@ class User(db.Model):
 
     id            = db.Column(db.Integer, primary_key=True)
     email         = db.Column(db.String(120), unique=True, nullable=False, index=True)
-    password_hash = db.Column(db.String(256), nullable=True)  # nullable para pacientes (usam birth_date)
+    password_hash = db.Column(db.String(256), nullable=True)
     role          = db.Column(db.String(20), nullable=False, default="doctor")
-    # role: "doctor" | "patient" | "admin"
 
     name          = db.Column(db.String(120))
-    birth_date    = db.Column(db.Date, nullable=True)  # usado como senha de paciente
+    birth_date    = db.Column(db.Date, nullable=True)
     created_at    = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
     is_active     = db.Column(db.Boolean, default=True)
 
-    # Se role == "patient", aponta para o Patient vinculado
     patient_id    = db.Column(db.Integer, db.ForeignKey("patients.id"), nullable=True)
 
     def set_password(self, raw):
@@ -38,7 +36,6 @@ class User(db.Model):
         return check_password_hash(self.password_hash, raw)
 
     def check_birth_date(self, date_str):
-        """Valida login de paciente: email + data de nascimento (YYYY-MM-DD ou DD/MM/YYYY)."""
         if not self.birth_date:
             return False
         for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y"):
@@ -67,8 +64,10 @@ class Patient(db.Model):
 
     id          = db.Column(db.Integer, primary_key=True)
     name        = db.Column(db.String(120), nullable=False)
+    cpf         = db.Column(db.String(14), unique=True, nullable=True, index=True)  # "123.456.789-00"
+    phone       = db.Column(db.String(20), nullable=True)                           # "(11) 91234-5678"
     birth_date  = db.Column(db.Date, nullable=True)
-    sex         = db.Column(db.String(1), nullable=True)   # "M" | "F"
+    sex         = db.Column(db.String(1), nullable=True)
     height_cm   = db.Column(db.Float, nullable=True)
     notes       = db.Column(db.Text, nullable=True)
     tags        = db.Column(db.String(255), nullable=True)
@@ -93,9 +92,18 @@ class Patient(db.Model):
         return self.measurements[-1] if self.measurements else None
 
     def to_dict(self, include_measurements=False):
+        # Busca o email do User vinculado a este paciente (para edição)
+        linked_email = None
+        linked_user = User.query.filter_by(patient_id=self.id, role="patient").first()
+        if linked_user:
+            linked_email = linked_user.email
+
         d = {
             "id":         self.id,
             "name":       self.name,
+            "cpf":        self.cpf,
+            "phone":      self.phone,
+            "email":      linked_email,
             "age":        self.age,
             "sex":        self.sex,
             "height_cm":  self.height_cm,
