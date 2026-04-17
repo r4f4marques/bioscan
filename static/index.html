@@ -275,6 +275,7 @@ const API = '';
 let token = localStorage.getItem('bioscan_token');
 let user  = JSON.parse(localStorage.getItem('bioscan_user') || '{}');
 let currentPatient = null;
+let currentManufacturer = 'all';  // 'all', 'tanita', 'inbody', etc.
 let isDoctor = false;
 let charts = {};
 
@@ -517,6 +518,74 @@ function metaStatus(v, age) { const d = v - age; return d <= 0 ? 'ok' : d <= 5 ?
 function bmiStatus(v) { return v < 25 ? 'ok' : v < 30 ? 'warn' : 'alert'; }
 function bl(s) { return s === 'ok' ? 'Normal' : s === 'warn' ? 'Atenção' : 'Elevado'; }
 
+// ── FILTRO POR FABRICANTE ─────────────────────────────────────────────────
+
+// Detecta fabricante a partir do source da medição
+function manufacturerOf(m) {
+  const s = m.source || '';
+  if (s.startsWith('tanita')) return 'tanita';
+  if (s.startsWith('inbody')) return 'inbody';
+  if (s === 'manual') return 'manual';
+  return 'other';
+}
+
+// Retorna lista única de fabricantes presentes nas medições do paciente
+function getManufacturers(patient) {
+  const ms = patient.measurements || [];
+  const set = new Set(ms.map(manufacturerOf));
+  return Array.from(set);
+}
+
+// Retorna medições filtradas pelo fabricante atual
+function getFilteredMeasurements(patient) {
+  const ms = patient.measurements || [];
+  if (currentManufacturer === 'all') return ms;
+  return ms.filter(m => manufacturerOf(m) === currentManufacturer);
+}
+
+// Renderiza toggle de fabricante (só aparece se há 2+ fabricantes)
+function renderManufacturerToggle(patient) {
+  const manufs = getManufacturers(patient);
+  if (manufs.length < 2) return '';
+
+  const labels = {
+    tanita: 'Tanita',
+    inbody: 'InBody',
+    manual: 'Manual',
+    other: 'Outros',
+  };
+
+  const btn = (key, label) => `
+    <button class="btn ${currentManufacturer === key ? 'btn-primary' : ''}"
+            style="padding:6px 14px;font-size:var(--fs-sm)"
+            onclick="setManufacturerFilter('${key}')">${label}</button>`;
+
+  let buttons = btn('all', 'Todos');
+  manufs.forEach(m => {
+    buttons += btn(m, labels[m] || m);
+  });
+
+  const allNotice = currentManufacturer === 'all' ? `
+    <div style="margin-top:8px;padding:8px 12px;background:#fef3e0;border-radius:6px;font-size:var(--fs-xs);color:#b07410;line-height:1.4">
+      ⚠ Medições de fabricantes diferentes podem reportar parâmetros não-diretamente comparáveis (ex: massa magra vs. massa muscular esquelética). Selecione um fabricante específico para análise precisa.
+    </div>` : '';
+
+  return `
+    <div style="margin-bottom:1rem">
+      <div style="display:flex;gap:6px;flex-wrap:wrap">${buttons}</div>
+      ${allNotice}
+    </div>`;
+}
+
+function setManufacturerFilter(key) {
+  currentManufacturer = key;
+  // Re-renderiza a aba atual
+  const activeTab = document.querySelector('.nav-item.active')?.id;
+  if (activeTab === 'nav-overview')       showTab('overview');
+  else if (activeTab === 'nav-evolution') showTab('evolution');
+  else if (activeTab === 'nav-segments')  showTab('segments');
+}
+
 // Formata uma data ISO (YYYY-MM-DD ou YYYY-MM-DDTHH:MM:SS...) para DD/MM/YYYY
 function fmtDateBR(iso) {
   if (!iso) return '—';
@@ -650,6 +719,7 @@ async function deletePatient(id, name) {
 }
 
 async function selectPatient(id) {
+  currentManufacturer = 'all';  // reseta filtro ao mudar de paciente
   const data = await api('GET', `/bioscan/patients/${id}`);
   if (data) showPatient(data);
 }
@@ -780,6 +850,31 @@ async function savePatient(id) {
 // ── OVERVIEW ──────────────────────────────────────────────────────────────
 
 // Card secundário dinâmico: mostra 4 campos mais relevantes disponíveis
+// Card principal: mostra Massa muscular esquelética (InBody) OU Massa magra (Tanita)
+function renderMuscleOrFFMCard(m) {
+  // Prioridade 1: muscle_kg (InBody tem músculo esquelético específico)
+  if (m.muscle_kg != null) {
+    return `<div class="mcard">
+      <div class="mcard-label">Massa muscular</div>
+      <div class="mcard-val">${m.muscle_kg.toFixed(1)}<span class="mcard-unit">kg</span></div>
+      <div class="mcard-sub">${m.muscle_quality != null ? 'Qualidade: ' + m.muscle_quality : 'Esquelética'}</div>
+    </div>`;
+  }
+  // Prioridade 2: ffm_kg (Tanita reporta massa magra total)
+  if (m.ffm_kg != null) {
+    return `<div class="mcard">
+      <div class="mcard-label">Massa magra</div>
+      <div class="mcard-val">${m.ffm_kg.toFixed(1)}<span class="mcard-unit">kg</span></div>
+      <div class="mcard-sub">${m.muscle_quality != null ? 'Qualidade musc.: ' + m.muscle_quality : 'Músculo + água + órgãos'}</div>
+    </div>`;
+  }
+  // Nenhum valor disponível
+  return `<div class="mcard">
+    <div class="mcard-label">Massa muscular</div>
+    <div class="mcard-val">—</div>
+  </div>`;
+}
+
 // Card principal: mostra Idade metabólica (Tanita) OU Pontuação InBody (fallback)
 function renderAgeOrScoreCard(m, p) {
   const age = p.age ?? '—';
@@ -798,7 +893,6 @@ function renderAgeOrScoreCard(m, p) {
           <div><div class="age-num" style="color:#bbb">${age}</div><div class="age-lbl">Idade real</div></div>
           <div style="font-size:20px;color:#ddd">→</div>
           <div><div class="age-num" style="color:${metaColor}">${m.meta_age}</div><div class="age-lbl">Metabólica</div></div>
-          ${metaDiff !== null ? `<div><div style="font-size:var(--fs-base);font-weight:600;color:${metaColor}">${metaDiff > 0 ? '+' : ''}${metaDiff}</div><div class="age-lbl">anos</div></div>` : ''}
         </div>
         <div style="margin-top:1rem">${flagsHtml}</div>
       </div>`;
@@ -910,23 +1004,23 @@ function renderSecondaryCards(m) {
 
 function renderOverview() {
   const p = currentPatient;
-  const ms = p.measurements || [];
+  const ms = getFilteredMeasurements(p);
   const m = ms.length > 0 ? ms[ms.length - 1] : null;
 
   if (!m) {
-    document.getElementById('content').innerHTML = `
+    document.getElementById('content').innerHTML = renderManufacturerToggle(p) + `
       <div class="card" style="text-align:center;padding:2rem;color:#bbb">
-        Nenhuma medição encontrada.<br><br>
+        Nenhuma medição encontrada${currentManufacturer !== 'all' ? ' para este fabricante' : ''}.<br><br>
         ${isDoctor ? '<button class="btn btn-primary" onclick="showScreen(\'upload\')">↑ Importar primeira medição</button>' : ''}
       </div>`;
     return;
   }
 
-  document.getElementById('content').innerHTML = `
+  document.getElementById('content').innerHTML = renderManufacturerToggle(p) + `
     <div class="grid grid-4">
       <div class="mcard"><div class="mcard-label">Peso</div><div class="mcard-val">${m.weight?.toFixed(1) ?? '—'}<span class="mcard-unit">kg</span></div><div class="mcard-sub">IMC ${m.bmi?.toFixed(1) ?? '—'}${m.bmi ? ' · <span class="badge ' + bmiStatus(m.bmi) + '">' + bl(bmiStatus(m.bmi)) + '</span>' : ''}</div></div>
       <div class="mcard"><div class="mcard-label">Gordura corporal</div><div class="mcard-val">${m.fat_pct?.toFixed(1) ?? '—'}<span class="mcard-unit">%</span></div>${m.fat_pct != null ? '<span class="badge ' + fatStatus(m.fat_pct, p.sex) + '">' + bl(fatStatus(m.fat_pct, p.sex)) + '</span>' : ''}</div>
-      <div class="mcard"><div class="mcard-label">Massa muscular</div><div class="mcard-val">${m.muscle_kg?.toFixed(1) ?? '—'}<span class="mcard-unit">kg</span></div><div class="mcard-sub">Qualidade: ${m.muscle_quality ?? '—'}</div></div>
+      ${renderMuscleOrFFMCard(m)}
       <div class="mcard"><div class="mcard-label">Visceral</div><div class="mcard-val">${m.visceral ?? '—'}</div>${m.visceral != null ? '<span class="badge ' + viscStatus(m.visceral) + '">' + bl(viscStatus(m.visceral)) + '</span>' : ''}</div>
     </div>
     <div class="grid grid-4">
@@ -1012,9 +1106,10 @@ async function downloadReport() {
 
 // ── EVOLUTION ─────────────────────────────────────────────────────────────
 function renderEvolution() {
-  const ms = currentPatient.measurements || [];
+  const ms = getFilteredMeasurements(currentPatient);
   if (!ms.length) {
-    document.getElementById('content').innerHTML = '<div class="loading">Nenhuma medição encontrada.</div>';
+    document.getElementById('content').innerHTML = renderManufacturerToggle(currentPatient) +
+      `<div class="loading">Nenhuma medição encontrada${currentManufacturer !== 'all' ? ' para este fabricante' : ''}.</div>`;
     return;
   }
 
@@ -1022,7 +1117,7 @@ function renderEvolution() {
     <td>${fmtDateBR(m.measured_at)}</td>
     <td>${m.weight != null ? m.weight.toFixed(1) + ' kg' : '—'}</td>
     <td>${m.fat_pct != null ? `<span class="badge ${fatStatus(m.fat_pct, currentPatient.sex)}">${m.fat_pct.toFixed(1)}%</span>` : '—'}</td>
-    <td>${m.muscle_kg != null ? m.muscle_kg.toFixed(2) + ' kg' : '—'}</td>
+    <td>${(m.muscle_kg ?? m.ffm_kg) != null ? (m.muscle_kg ?? m.ffm_kg).toFixed(2) + ' kg' : '—'}</td>
     <td>${m.visceral != null ? `<span class="badge ${viscStatus(m.visceral)}">${m.visceral}</span>` : '—'}</td>
     <td>${m.meta_age != null ? m.meta_age + ' anos' : '—'}</td>
     <td>${m.bmr != null ? m.bmr.toFixed(0) + ' kcal' : '—'}</td>
@@ -1048,7 +1143,7 @@ function renderEvolution() {
       <div class="card"><div class="card-title">Gordura corporal</div><div class="chart-container"><canvas id="ch-fat"></canvas></div></div>
     </div>
     <div class="grid grid-2">
-      <div class="card"><div class="card-title">Massa muscular</div><div class="chart-container"><canvas id="ch-muscle"></canvas></div></div>
+      <div class="card"><div class="card-title">Massa muscular / magra</div><div class="chart-container"><canvas id="ch-muscle"></canvas></div></div>
       <div class="card"><div class="card-title">Gordura visceral</div><div class="chart-container"><canvas id="ch-visc"></canvas></div></div>
     </div>
     <div class="grid grid-2">
@@ -1060,7 +1155,7 @@ function renderEvolution() {
       <small>Medição atual: ${ms.length}</small>
     </div>`;
 
-  document.getElementById('content').innerHTML = inbodyCharts + chartCards + `
+  document.getElementById('content').innerHTML = renderManufacturerToggle(currentPatient) + inbodyCharts + chartCards + `
     <div class="card">
       <div class="card-title">Histórico de medições <small>${ms.length} registro(s)</small></div>
       <table class="evo-tbl">
@@ -1182,18 +1277,29 @@ function renderMuscleFatBars(m, patient) {
     weightMax = ref.bmiMax * h_m * h_m;
   }
 
-  // Para massa muscular: estimativa baseada em % da massa magra esperada
-  // FFM esperada ≈ peso × (1 - fatPct_alvo). Músculo esquelético ≈ 50% da FFM
-  // Para simplificar, usamos faixa relativa ao peso atual
-  let muscMin = null, muscMax = null;
-  if (m.weight) {
+  // Decide o que mostrar: músculo esquelético (InBody) ou massa magra (Tanita)
+  // Faixas de referência diferentes para cada conceito
+  let muscVal = null, muscMin = null, muscMax = null, muscLabel = 'Massa muscular';
+  if (m.muscle_kg != null && m.weight) {
+    // InBody: músculo esquelético é ~35-48% do peso em homens, ~28-42% em mulheres
+    muscVal = m.muscle_kg;
+    muscLabel = 'Massa muscular (esquelética)';
     if (patient.sex === 'F') {
-      muscMin = m.weight * 0.32;  // ~32% do peso em mulheres
-      muscMax = m.weight * 0.42;  // ~42%
+      muscMin = m.weight * 0.28;
+      muscMax = m.weight * 0.42;
     } else {
-      muscMin = m.weight * 0.38;  // ~38% do peso em homens
-      muscMax = m.weight * 0.48;  // ~48%
+      muscMin = m.weight * 0.35;
+      muscMax = m.weight * 0.48;
     }
+  } else if (m.ffm_kg != null && m.weight) {
+    // Tanita: massa magra total é ~70-80% do peso em homens magros, ~60-75% em mulheres
+    // A faixa é na verdade "(1 - %gordura_ideal)" × peso
+    muscVal = m.ffm_kg;
+    muscLabel = 'Massa magra';
+    const fatMinDecimal = ref.fatMin / 100;
+    const fatMaxDecimal = ref.fatMax / 100;
+    muscMin = m.weight * (1 - fatMaxDecimal);
+    muscMax = m.weight * (1 - fatMinDecimal);
   }
 
   // Para massa de gordura: peso × fatPct_faixa
@@ -1210,8 +1316,8 @@ function renderMuscleFatBars(m, patient) {
       ? renderRangeBar(m.weight, weightMin, weightMax, ' kg', 'Peso')
       : `<div style="padding:12px 0"><div style="font-size:var(--fs-sm);font-weight:500">Peso</div>
          <div style="font-size:var(--fs-sm);color:#999;margin-top:4px">Altura não informada — faixa indisponível</div></div>`}
-    ${muscMin != null
-      ? renderRangeBar(m.muscle_kg, muscMin, muscMax, ' kg', 'Massa muscular')
+    ${muscVal != null && muscMin != null
+      ? renderRangeBar(muscVal, muscMin, muscMax, ' kg', muscLabel)
       : ''}
     ${fatKgMin != null
       ? renderRangeBar(fatKg, fatKgMin, fatKgMax, ' kg', 'Massa de gordura')
@@ -1264,7 +1370,7 @@ function renderCharts(ms) {
 
   mkChart('ch-weight', ms.map(m => m.weight),    '#1a6fa8');
   mkChart('ch-fat',    ms.map(m => m.fat_pct),   '#e67e22');
-  mkChart('ch-muscle', ms.map(m => m.muscle_kg), '#2d6a1f');
+  mkChart('ch-muscle', ms.map(m => m.muscle_kg ?? m.ffm_kg), '#2d6a1f');
   mkChart('ch-visc',   ms.map(m => m.visceral),  '#c0392b');
   mkChart('ch-meta',   ms.map(m => m.meta_age),  '#8e44ad');
   mkChart('ch-bmr',    ms.map(m => m.bmr),       '#16a085');
@@ -1272,14 +1378,15 @@ function renderCharts(ms) {
 
 // ── SEGMENTS — Layout Tanita dual (massa magra + gordura) ────────────────
 function renderSegments() {
-  const ms = currentPatient.measurements || [];
+  const ms = getFilteredMeasurements(currentPatient);
   if (!ms.length) {
-    document.getElementById('content').innerHTML = '<div class="loading">Nenhuma medição encontrada.</div>';
+    document.getElementById('content').innerHTML = renderManufacturerToggle(currentPatient) +
+      `<div class="loading">Nenhuma medição encontrada${currentManufacturer !== 'all' ? ' para este fabricante' : ''}.</div>`;
     return;
   }
   const m = ms[ms.length - 1];
 
-  document.getElementById('content').innerHTML = `
+  document.getElementById('content').innerHTML = renderManufacturerToggle(currentPatient) + `
     <div class="card">
       <div class="card-title">Análise segmental <small>medição ${fmtDateBR(m.measured_at)}</small></div>
       <div id="body-svg"></div>
