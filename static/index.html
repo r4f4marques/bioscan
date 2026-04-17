@@ -71,7 +71,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .error-box{color:#c0392b;font-size:12px;padding:.5rem .75rem;background:#fde8e8;border-radius:6px;margin-top:.5rem}
 .chart-container{position:relative;height:200px;margin-top:.5rem}
 .body-diagram{display:flex;justify-content:center;padding:1rem}
-.body-diagram svg{max-width:340px;width:100%}
+.body-diagram svg{max-width:100%;width:100%}
 .body-legend{display:flex;gap:1rem;justify-content:center;font-size:11px;color:#888;margin-top:.75rem;flex-wrap:wrap}
 .body-legend-item{display:flex;align-items:center;gap:4px}
 .body-legend-dot{width:10px;height:10px;border-radius:2px}
@@ -580,112 +580,130 @@ function showBodyMode(mode) {
 
   // SVG do corpo humano — silhueta anatômica com curvas Bézier
   const svg = `
-    <svg viewBox="0 0 280 460" xmlns="http://www.w3.org/2000/svg">
-      <!-- Cabeça (neutra, oval com formato humano) -->
-      <path d="M 140 12
-               C 158 12, 170 26, 170 44
-               C 170 58, 165 70, 158 76
-               C 156 82, 155 86, 154 90
-               L 126 90
-               C 125 86, 124 82, 122 76
-               C 115 70, 110 58, 110 44
-               C 110 26, 122 12, 140 12 Z"
-            fill="#d5d4ce" stroke="#aaa" stroke-width="1"/>
+    <svg viewBox="0 0 340 600" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="skin-neutral" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#e0dfd8"/>
+          <stop offset="100%" stop-color="#c8c7c0"/>
+        </linearGradient>
+      </defs>
 
-      <!-- Pescoço (trapezoide suave) -->
-      <path d="M 128 90 Q 128 96, 125 102 L 155 102 Q 152 96, 152 90 Z"
-            fill="#d5d4ce" stroke="#aaa" stroke-width="1"/>
+      <path d="M 170 30
+               C 185 30, 196 42, 196 60
+               C 196 74, 192 85, 186 92
+               C 184 98, 182 102, 180 104
+               L 160 104
+               C 158 102, 156 98, 154 92
+               C 148 85, 144 74, 144 60
+               C 144 42, 155 30, 170 30 Z"
+            fill="url(#skin-neutral)" stroke="#999" stroke-width="1"/>
 
-      <!-- Tronco: ombros largos, cintura, quadril -->
-      <path d="M 125 102
-               C 115 104, 100 108, 92 118
-               Q 86 128, 88 142
-               C 90 160, 92 180, 94 198
-               Q 96 215, 100 228
-               C 103 240, 106 252, 108 262
-               Q 110 270, 114 275
-               L 166 275
-               Q 170 270, 172 262
-               C 174 252, 177 240, 180 228
-               Q 184 215, 186 198
-               C 188 180, 190 160, 192 142
-               Q 194 128, 188 118
-               C 180 108, 165 104, 155 102 Z"
-            fill="${colorFor(data.trunk)}" stroke="#888" stroke-width="1.3" stroke-linejoin="round"/>
-      <text x="140" y="188" text-anchor="middle" class="seg-label" fill="#1a1a18">Tronco</text>
-      <text x="140" y="204" text-anchor="middle" class="seg-label-sub" fill="#333">${fmt(data.trunk)}${unit}</text>
+      <path d="M 161 104 Q 160 112, 155 120 Q 170 122, 185 120 Q 180 112, 179 104 Z"
+            fill="url(#skin-neutral)" stroke="#999" stroke-width="1"/>
 
-      <!-- Braço direito do paciente (esquerda na tela): ombro, bíceps, antebraço, mão -->
-      <path d="M 92 118
-               C 82 120, 72 128, 66 142
-               Q 60 160, 58 182
-               C 56 204, 54 226, 52 246
-               Q 50 262, 48 274
-               C 47 282, 48 288, 52 292
-               Q 56 294, 62 292
-               C 66 288, 68 282, 70 274
-               Q 72 262, 74 246
-               C 76 226, 78 204, 82 182
-               Q 86 160, 92 142
-               C 94 132, 94 124, 92 118 Z"
-            fill="${colorFor(data.right_arm)}" stroke="#888" stroke-width="1.3" stroke-linejoin="round"/>
-      <text x="62" y="188" text-anchor="middle" class="seg-label" fill="#1a1a18">Braço D</text>
-      <text x="62" y="204" text-anchor="middle" class="seg-label-sub" fill="#333">${fmt(data.right_arm)}${unit}</text>
+      <path d="M 155 118
+               C 140 120, 125 126, 118 138
+               C 113 148, 111 158, 110 168
+               L 114 176
+               C 117 188, 120 202, 122 216
+               C 123 228, 123 238, 122 248
+               C 120 260, 118 272, 118 284
+               C 119 296, 123 306, 128 316
+               Q 134 326, 140 332
+               L 200 332
+               Q 206 326, 212 316
+               C 217 306, 221 296, 222 284
+               C 222 272, 220 260, 218 248
+               C 217 238, 217 228, 218 216
+               C 220 202, 223 188, 226 176
+               L 230 168
+               C 229 158, 227 148, 222 138
+               C 215 126, 200 120, 185 118 Z"
+            fill="${colorFor(data.trunk)}" stroke="#666" stroke-width="1.2" stroke-linejoin="round"/>
 
-      <!-- Braço esquerdo do paciente (direita na tela) -->
-      <path d="M 188 118
-               C 198 120, 208 128, 214 142
-               Q 220 160, 222 182
-               C 224 204, 226 226, 228 246
-               Q 230 262, 232 274
-               C 233 282, 232 288, 228 292
-               Q 224 294, 218 292
-               C 214 288, 212 282, 210 274
-               Q 208 262, 206 246
-               C 204 226, 202 204, 198 182
-               Q 194 160, 188 142
-               C 186 132, 186 124, 188 118 Z"
-            fill="${colorFor(data.left_arm)}" stroke="#888" stroke-width="1.3" stroke-linejoin="round"/>
-      <text x="218" y="188" text-anchor="middle" class="seg-label" fill="#1a1a18">Braço E</text>
-      <text x="218" y="204" text-anchor="middle" class="seg-label-sub" fill="#333">${fmt(data.left_arm)}${unit}</text>
+      <path d="M 118 138
+               C 108 142, 100 150, 94 162
+               C 90 172, 88 184, 87 196
+               C 86 210, 85 222, 84 234
+               C 83 246, 82 258, 81 268
+               C 80 278, 80 286, 82 294
+               Q 85 302, 90 305
+               C 94 306, 98 305, 100 302
+               Q 103 294, 104 286
+               C 105 278, 106 270, 107 258
+               C 108 246, 109 234, 110 222
+               C 111 210, 112 198, 114 186
+               Q 116 174, 119 162
+               C 121 152, 122 144, 118 138 Z"
+            fill="${colorFor(data.right_arm)}" stroke="#666" stroke-width="1.2" stroke-linejoin="round"/>
 
-      <!-- Perna direita: coxa, joelho, panturrilha, tornozelo -->
-      <path d="M 114 275
-               C 112 290, 110 310, 108 332
-               Q 107 358, 108 382
-               C 109 400, 111 418, 114 432
-               Q 116 440, 120 442
-               C 126 443, 132 442, 134 438
-               Q 136 428, 136 414
-               C 137 396, 136 376, 136 354
-               Q 137 328, 138 300
-               C 139 288, 140 280, 140 275 Z"
-            fill="${colorFor(data.right_leg)}" stroke="#888" stroke-width="1.3" stroke-linejoin="round"/>
-      <text x="122" y="348" text-anchor="middle" class="seg-label" fill="#1a1a18">Perna D</text>
-      <text x="122" y="364" text-anchor="middle" class="seg-label-sub" fill="#333">${fmt(data.right_leg)}${unit}</text>
+      <path d="M 222 138
+               C 232 142, 240 150, 246 162
+               C 250 172, 252 184, 253 196
+               C 254 210, 255 222, 256 234
+               C 257 246, 258 258, 259 268
+               C 260 278, 260 286, 258 294
+               Q 255 302, 250 305
+               C 246 306, 242 305, 240 302
+               Q 237 294, 236 286
+               C 235 278, 234 270, 233 258
+               C 232 246, 231 234, 230 222
+               C 229 210, 228 198, 226 186
+               Q 224 174, 221 162
+               C 219 152, 218 144, 222 138 Z"
+            fill="${colorFor(data.left_arm)}" stroke="#666" stroke-width="1.2" stroke-linejoin="round"/>
 
-      <!-- Perna esquerda -->
-      <path d="M 166 275
-               C 168 290, 170 310, 172 332
-               Q 173 358, 172 382
-               C 171 400, 169 418, 166 432
-               Q 164 440, 160 442
-               C 154 443, 148 442, 146 438
-               Q 144 428, 144 414
-               C 143 396, 144 376, 144 354
-               Q 143 328, 142 300
-               C 141 288, 140 280, 140 275 Z"
-            fill="${colorFor(data.left_leg)}" stroke="#888" stroke-width="1.3" stroke-linejoin="round"/>
-      <text x="158" y="348" text-anchor="middle" class="seg-label" fill="#1a1a18">Perna E</text>
-      <text x="158" y="364" text-anchor="middle" class="seg-label-sub" fill="#333">${fmt(data.left_leg)}${unit}</text>
+      <path d="M 140 332
+               C 138 348, 136 366, 135 384
+               C 134 402, 133 420, 133 438
+               C 134 456, 135 472, 138 486
+               C 140 496, 142 504, 145 510
+               Q 150 514, 158 514
+               C 163 513, 167 510, 168 504
+               Q 170 492, 170 478
+               C 170 462, 169 444, 169 424
+               C 169 404, 169 384, 169 364
+               C 169 350, 169 340, 168 332 Z"
+            fill="${colorFor(data.right_leg)}" stroke="#666" stroke-width="1.2" stroke-linejoin="round"/>
 
-      <!-- Pés -->
-      <ellipse cx="124" cy="446" rx="14" ry="5" fill="#d5d4ce" stroke="#aaa"/>
-      <ellipse cx="156" cy="446" rx="14" ry="5" fill="#d5d4ce" stroke="#aaa"/>
+      <path d="M 200 332
+               C 202 348, 204 366, 205 384
+               C 206 402, 207 420, 207 438
+               C 206 456, 205 472, 202 486
+               C 200 496, 198 504, 195 510
+               Q 190 514, 182 514
+               C 177 513, 173 510, 172 504
+               Q 170 492, 170 478
+               C 170 462, 171 444, 171 424
+               C 171 404, 171 384, 171 364
+               C 171 350, 171 340, 172 332 Z"
+            fill="${colorFor(data.left_leg)}" stroke="#666" stroke-width="1.2" stroke-linejoin="round"/>
 
-      <!-- Mãos -->
-      <circle cx="55" cy="300" r="7" fill="#d5d4ce" stroke="#aaa"/>
-      <circle cx="225" cy="300" r="7" fill="#d5d4ce" stroke="#aaa"/>
+      <circle cx="92" cy="318" r="10" fill="url(#skin-neutral)" stroke="#999" stroke-width="1"/>
+      <circle cx="248" cy="318" r="10" fill="url(#skin-neutral)" stroke="#999" stroke-width="1"/>
+
+      <ellipse cx="152" cy="522" rx="16" ry="6" fill="url(#skin-neutral)" stroke="#999"/>
+      <ellipse cx="188" cy="522" rx="16" ry="6" fill="url(#skin-neutral)" stroke="#999"/>
+
+      <line x1="55" y1="230" x2="85" y2="230" stroke="#bbb" stroke-width="0.6" stroke-dasharray="2 2"/>
+      <text x="15" y="228" class="seg-label" fill="#1a1a18">Braço D</text>
+      <text x="15" y="242" class="seg-label-sub" fill="#666">${fmt(data.right_arm)}${unit}</text>
+
+      <line x1="255" y1="230" x2="285" y2="230" stroke="#bbb" stroke-width="0.6" stroke-dasharray="2 2"/>
+      <text x="290" y="228" class="seg-label" fill="#1a1a18">Braço E</text>
+      <text x="290" y="242" class="seg-label-sub" fill="#666">${fmt(data.left_arm)}${unit}</text>
+
+      <line x1="205" y1="225" x2="235" y2="210" stroke="#bbb" stroke-width="0.6" stroke-dasharray="2 2"/>
+      <text x="240" y="208" class="seg-label" fill="#1a1a18">Tronco</text>
+      <text x="240" y="222" class="seg-label-sub" fill="#666">${fmt(data.trunk)}${unit}</text>
+
+      <line x1="135" y1="420" x2="75" y2="430" stroke="#bbb" stroke-width="0.6" stroke-dasharray="2 2"/>
+      <text x="20" y="428" class="seg-label" fill="#1a1a18">Perna D</text>
+      <text x="20" y="442" class="seg-label-sub" fill="#666">${fmt(data.right_leg)}${unit}</text>
+
+      <line x1="205" y1="420" x2="265" y2="430" stroke="#bbb" stroke-width="0.6" stroke-dasharray="2 2"/>
+      <text x="270" y="428" class="seg-label" fill="#1a1a18">Perna E</text>
+      <text x="270" y="442" class="seg-label-sub" fill="#666">${fmt(data.left_leg)}${unit}</text>
     </svg>`;
 
   document.getElementById('body-svg').innerHTML = svg;
