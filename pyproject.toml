@@ -29,6 +29,8 @@ dependencies = [
     "groq>=0.9",
     "python-dotenv>=1.0",
     "psycopg2-binary>=2.9",
+    "reportlab>=4.0",
+    "matplotlib>=3.7",
 ]
 
 [project.optional-dependencies]
