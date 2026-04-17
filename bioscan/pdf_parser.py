@@ -112,7 +112,10 @@ SEGMENTOS (ambos fabricantes):
 - InBody: "Análise da Massa Magra Segmentar" mostra kg E % por segmento
   - USE SOMENTE OS VALORES EM KG (a primeira linha de cada segmento, ex: "3,94kg" para braço esquerdo)
   - IGNORE os percentuais (ex: "112,2%") — eles são proporção do ideal, não a medida absoluta
+  - ATENÇÃO CRÍTICA: o valor do TRONCO aparece NO CENTRO da silhueta do InBody (entre os braços e as pernas). É OBRIGATÓRIO extrair esse valor. Exemplo: se vir "29,8kg" entre os braços e as pernas, esse é o seg_musc.trunk. NUNCA deixe trunk como null se a imagem mostrar um valor central.
+  - São 5 valores distintos de massa em kg por gráfico segmental: 2 braços (topo), 1 tronco (centro), 2 pernas (base). Sempre extraia os 5.
 - "Análise da Gordura Segmentar" → seg_fat (em kg para InBody, em % para Tanita)
+  - No InBody, o tronco aparece também no centro (ex: "6,5kg" para gordura do tronco)
 - Lateralidade: mantenha right_arm/left_arm conforme o lado ANATÔMICO do paciente
   (no InBody, o rótulo "Direito" está à direita da figura — que é o lado ANATÔMICO direito)
 
@@ -253,13 +256,25 @@ def _normalize_extraction(data: dict) -> dict:
     # Segmentos achatados
     seg_musc = data.get("seg_musc") or {}
     seg_fat = data.get("seg_fat") or {}
+    manufacturer = (data.get("manufacturer") or "").lower()
+
     for side in ("right_arm", "left_arm", "right_leg", "left_leg", "trunk"):
-        result[f"seg_musc_{side}"] = _num(seg_musc.get(side))
-        result[f"seg_fat_{side}"]  = _num(seg_fat.get(side))
+        musc_val = _num(seg_musc.get(side))
+        fat_val  = _num(seg_fat.get(side))
+
+        result[f"seg_musc_{side}"] = musc_val
+
+        # InBody reporta seg_fat em kg. Convertemos para % relativo ao segmento:
+        # % = gordura / (gordura + massa_magra) × 100
+        # Assim fica na mesma unidade que o Tanita (que já vem em %).
+        if manufacturer == "inbody" and fat_val is not None and musc_val is not None and (fat_val + musc_val) > 0:
+            result[f"seg_fat_{side}"] = round(fat_val / (fat_val + musc_val) * 100, 1)
+        else:
+            result[f"seg_fat_{side}"] = fat_val
 
     # Metadata auxiliar
     result["_patient_name_detected"] = data.get("patient_name")
-    result["_manufacturer"] = (data.get("manufacturer") or "").lower() or "unknown"
+    result["_manufacturer"] = manufacturer or "unknown"
 
     return result
 
