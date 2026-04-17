@@ -391,7 +391,7 @@ function renderUpload() {
           <label style="font-size:12px;color:#666;display:block;margin-bottom:4px">Paciente (ID)</label>
           <input type="number" id="upload-pid" placeholder="ID do paciente (ex: 1)" style="width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px">
         </div>
-        <div class="upload-zone" onclick="document.getElementById('csvfile').click()">
+        <div class="upload-zone" onclick="openCSVPicker()">
           <div style="font-size:22px;margin-bottom:.5rem">↑</div>
           <div style="font-size:13px;color:#999">Clique para selecionar o CSV exportado pela balança Tanita</div>
           <div style="font-size:11px;color:#ccc;margin-top:4px">BC-780, BC-545N, MC-780MA e compatíveis</div>
@@ -416,14 +416,21 @@ async function loadUploadPatients() {
   document.getElementById('upload-patients').innerHTML = html;
 }
 
+function openCSVPicker() {
+  const pid = document.getElementById('upload-pid').value;
+  const result = document.getElementById('upload-result');
+  if (!pid) {
+    result.innerHTML = '<div style="color:#c0392b;font-size:12px">Informe o ID do paciente antes de selecionar o arquivo.</div>';
+    return;
+  }
+  result.innerHTML = '';
+  document.getElementById('csvfile').click();
+}
+
 async function uploadCSV(input) {
   const file = input.files[0];
   if (!file) return;
   const pid = document.getElementById('upload-pid').value;
-  if (!pid) {
-    document.getElementById('upload-result').innerHTML = '<div style="color:#c0392b;font-size:12px">Informe o ID do paciente.</div>';
-    return;
-  }
 
   const result = document.getElementById('upload-result');
   result.innerHTML = '<div style="color:#999;font-size:12px">Importando...</div>';
