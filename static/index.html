@@ -849,12 +849,22 @@ function renderSegDetail(m) {
 // ── UPLOAD ────────────────────────────────────────────────────────────────
 function renderUpload() {
   document.getElementById('content').innerHTML = `
-    <div style="max-width:500px">
+    <div style="max-width:640px">
+      <div class="card">
+        <div class="card-title">Selecionar paciente</div>
+        <div class="form-row">
+          <input type="text" id="upload-search" placeholder="Buscar por nome ou CPF..."
+                 style="width:100%;padding:10px 14px;border:1px solid #ddd;border-radius:8px;font-size:13px"
+                 oninput="filterUploadPatients(this.value)" autocomplete="off">
+        </div>
+        <div id="upload-patients" style="max-height:220px;overflow-y:auto;border:1px solid #eee;border-radius:8px">
+          <div class="loading" style="padding:1rem">Carregando...</div>
+        </div>
+        <div id="upload-selected" style="margin-top:.75rem;font-size:13px;color:#666"></div>
+      </div>
+
       <div class="card">
         <div class="card-title">Importar CSV Tanita</div>
-        <div class="form-row"><label>ID do paciente *</label>
-          <input type="number" id="upload-pid" placeholder="ID do paciente">
-        </div>
         <div class="upload-zone" onclick="openCSVPicker()">
           <div style="font-size:22px;margin-bottom:.5rem">↑</div>
           <div style="font-size:13px;color:#999">Clique para selecionar o CSV exportado pela balança Tanita</div>
@@ -863,28 +873,135 @@ function renderUpload() {
         <input type="file" id="csvfile" accept=".csv" style="display:none" onchange="uploadCSV(this)">
         <div id="upload-result"></div>
       </div>
-      <div class="card">
-        <div class="card-title">Pacientes cadastrados <small>(clique para selecionar)</small></div>
-        <div id="upload-patients"><div class="loading" style="padding:1rem">Carregando...</div></div>
+
+      <div class="card" id="measurements-card" style="display:none">
+        <div class="card-title">Medições existentes <small id="meas-count"></small></div>
+        <div id="meas-list"></div>
       </div>
     </div>`;
+
+  window._uploadPid = null;
+  window._uploadPatients = [];
   loadUploadPatients();
 }
 
 async function loadUploadPatients() {
   const ps = await api('GET', '/bioscan/patients');
   if (!ps) return;
-  const html = ps.length
-    ? ps.map(p => `<div style="padding:.4rem 0;font-size:13px;border-bottom:1px solid #f0f0f0;cursor:pointer" onclick="document.getElementById('upload-pid').value=${p.id}"><strong>ID ${p.id}</strong> — ${p.name}${p.cpf ? ' · ' + p.cpf : ''}</div>`).join('')
-    : '<div style="color:#bbb;font-size:13px">Nenhum paciente cadastrado.</div>';
-  document.getElementById('upload-patients').innerHTML = html;
+  window._uploadPatients = ps;
+  renderUploadPatients(ps);
+}
+
+function filterUploadPatients(query) {
+  const all = window._uploadPatients || [];
+  const q = query.toLowerCase().trim();
+
+  if (!q) { renderUploadPatients(all); return; }
+
+  const qDigits = q.replace(/\D/g, '');
+  const filtered = all.filter(p => {
+    const nameMatch = p.name.toLowerCase().includes(q);
+    const cpfMatch = qDigits && p.cpf && p.cpf.replace(/\D/g, '').includes(qDigits);
+    return nameMatch || cpfMatch;
+  });
+
+  renderUploadPatients(filtered);
+}
+
+function renderUploadPatients(patients) {
+  const el = document.getElementById('upload-patients');
+  if (!el) return;
+
+  if (!patients.length) {
+    el.innerHTML = '<div style="color:#bbb;font-size:13px;padding:1rem;text-align:center">Nenhum paciente encontrado.</div>';
+    return;
+  }
+
+  el.innerHTML = patients.map(p => {
+    const isSelected = window._uploadPid === p.id;
+    return `<div onclick="selectUploadPatient(${p.id})"
+      style="padding:.6rem 1rem;font-size:13px;border-bottom:1px solid #f0f0f0;cursor:pointer;transition:background .1s;${isSelected ? 'background:#eef5e0' : ''}"
+      onmouseover="this.style.background='${isSelected ? '#eef5e0' : '#fafaf8'}'"
+      onmouseout="this.style.background='${isSelected ? '#eef5e0' : '#fff'}'">
+      <strong>${p.name}</strong>${p.cpf ? ' <span style="color:#999">· ' + p.cpf + '</span>' : ''}
+    </div>`;
+  }).join('');
+}
+
+async function selectUploadPatient(id) {
+  window._uploadPid = id;
+  const p = window._uploadPatients.find(x => x.id === id);
+  if (p) {
+    document.getElementById('upload-selected').innerHTML =
+      `Selecionado: <strong>${p.name}</strong>${p.cpf ? ' · ' + p.cpf : ''}`;
+  }
+  renderUploadPatients(window._uploadPatients);  // re-render para destacar
+  await loadPatientMeasurements(id);
+}
+
+async function loadPatientMeasurements(pid) {
+  const data = await api('GET', `/bioscan/patients/${pid}`);
+  if (!data) return;
+
+  const ms = data.measurements || [];
+  const card = document.getElementById('measurements-card');
+  const count = document.getElementById('meas-count');
+  const list = document.getElementById('meas-list');
+
+  card.style.display = 'block';
+  count.textContent = `(${ms.length})`;
+
+  if (!ms.length) {
+    list.innerHTML = '<div style="color:#bbb;font-size:13px;padding:.5rem">Nenhuma medição registrada.</div>';
+    return;
+  }
+
+  // Ordena mais recentes primeiro
+  const sorted = [...ms].sort((a, b) => b.measured_at.localeCompare(a.measured_at));
+
+  // Detecta medições no mesmo dia para mostrar hora
+  const dates = sorted.map(m => m.measured_at.substring(0, 10));
+  const hasSameDay = dates.length !== new Set(dates).size;
+
+  list.innerHTML = `
+    <table class="evo-tbl">
+      <thead><tr><th>Data</th><th>Peso</th><th>Gordura</th><th>Músculo</th><th>Visceral</th><th></th></tr></thead>
+      <tbody>
+        ${sorted.map(m => {
+          const dt = m.measured_at.substring(0, 16).replace('T', ' ');
+          const display = hasSameDay ? dt : dt.substring(0, 10);
+          return `<tr>
+            <td>${display}</td>
+            <td>${m.weight ? m.weight.toFixed(1) + ' kg' : '—'}</td>
+            <td>${m.fat_pct ? m.fat_pct.toFixed(1) + '%' : '—'}</td>
+            <td>${m.muscle_kg ? m.muscle_kg.toFixed(2) + ' kg' : '—'}</td>
+            <td>${m.visceral != null ? m.visceral : '—'}</td>
+            <td style="text-align:right">
+              <button class="btn" style="color:#c0392b;padding:3px 8px;font-size:11px"
+                onclick="deleteMeasurement(${pid}, ${m.id}, '${display}')">✕</button>
+            </td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>`;
+}
+
+async function deleteMeasurement(pid, mid, dateStr) {
+  if (!confirm(`Excluir medição de ${dateStr}?\n\nEsta ação não pode ser desfeita.`)) {
+    return;
+  }
+  const result = await api('DELETE', `/bioscan/patients/${pid}/measurements/${mid}`);
+  if (result && !result.error) {
+    await loadPatientMeasurements(pid);
+  } else {
+    alert('Erro ao excluir: ' + (result?.error || 'desconhecido'));
+  }
 }
 
 function openCSVPicker() {
-  const pid = document.getElementById('upload-pid').value;
   const result = document.getElementById('upload-result');
-  if (!pid) {
-    result.innerHTML = '<div class="error-box">Informe o ID do paciente antes de selecionar o arquivo.</div>';
+  if (!window._uploadPid) {
+    result.innerHTML = '<div class="error-box">Selecione um paciente antes de importar o CSV.</div>';
     return;
   }
   result.innerHTML = '';
@@ -894,7 +1011,7 @@ function openCSVPicker() {
 async function uploadCSV(input) {
   const file = input.files[0];
   if (!file) return;
-  const pid = document.getElementById('upload-pid').value;
+  const pid = window._uploadPid;
   const result = document.getElementById('upload-result');
   result.innerHTML = '<div style="color:#999;font-size:12px;margin-top:.5rem">Importando...</div>';
 
@@ -902,6 +1019,7 @@ async function uploadCSV(input) {
   form.append('csv', file);
 
   const data = await api('POST', `/bioscan/patients/${pid}/import-csv`, form, true);
+  input.value = '';
   if (!data) return;
 
   if (data.error) {
@@ -910,8 +1028,9 @@ async function uploadCSV(input) {
     result.innerHTML = `<div class="success-box">
       ✓ ${data.inserted} medição(ões) importada(s) · ${data.skipped} ignorada(s) (duplicata)
     </div>`;
+    // Atualiza a lista de medições após importar
+    await loadPatientMeasurements(pid);
   }
-  input.value = '';
 }
 
 showScreen('list');
