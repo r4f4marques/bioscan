@@ -115,6 +115,31 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .age-lbl{font-size:var(--fs-xs);color:var(--c-text-soft);margin-top:4px}
 .loading{text-align:center;padding:3rem;color:var(--c-text-soft);font-size:var(--fs-sm)}
 
+/* ── GRÁFICOS DE BARRAS (InBody-style) ──────────────────────────────── */
+.hbar-group{padding:.6rem 0}
+.hbar-row{display:grid;grid-template-columns:140px 1fr 100px;align-items:center;gap:14px;padding:.55rem 0}
+.hbar-label{font-size:var(--fs-sm);color:var(--c-text-sub);font-weight:500}
+.hbar-label-sub{font-size:var(--fs-xs);color:var(--c-text-soft);display:block;font-weight:400;margin-top:1px}
+.hbar-track{position:relative;height:28px;display:flex;border-radius:6px;overflow:hidden;background:#f0efeb}
+.hbar-zone{flex:1;display:flex;align-items:center;justify-content:center;font-size:var(--fs-xs);color:rgba(0,0,0,0.45);font-weight:500;position:relative}
+.hbar-zone-low{background:#dde7f5}
+.hbar-zone-normal{background:#c8e0b4}
+.hbar-zone-high{background:#f5c9c4}
+.hbar-marker{position:absolute;top:-3px;bottom:-3px;width:3px;background:#1a1a18;transform:translateX(-50%);border-radius:2px;z-index:2;box-shadow:0 0 0 2px rgba(255,255,255,0.85)}
+.hbar-marker::after{content:'';position:absolute;top:-4px;left:50%;transform:translateX(-50%);width:10px;height:10px;background:#1a1a18;border-radius:50%;border:2px solid #fff}
+.hbar-value{font-size:var(--fs-sm);font-weight:600;text-align:right;color:var(--c-text)}
+.hbar-value-cls{font-size:var(--fs-xs);font-weight:400;color:var(--c-text-soft);display:block;margin-top:1px}
+.hbar-legend{display:flex;gap:1rem;font-size:var(--fs-xs);color:var(--c-text-soft);padding:.4rem 0 .7rem;flex-wrap:wrap}
+.hbar-legend-item{display:flex;align-items:center;gap:5px}
+.hbar-legend-dot{width:10px;height:10px;border-radius:2px}
+.hbar-link{position:absolute;border-top:2px dashed #888;opacity:0.5;pointer-events:none;z-index:1}
+
+/* Responsivo: em mobile, label/value ficam acima da barra */
+@media (max-width: 700px) {
+  .hbar-row{grid-template-columns:1fr;gap:6px}
+  .hbar-value{text-align:left}
+}
+
 /* ── FORMULÁRIOS ─────────────────────────────────────────────────────── */
 .form-row{margin-bottom:1.1rem}
 .form-row label{display:block;font-size:var(--fs-sm);color:var(--c-text-sub);margin-bottom:6px;font-weight:500}
@@ -953,6 +978,20 @@ function renderEvolution() {
     <td>${m.bmr != null ? m.bmr.toFixed(0) + ' kcal' : '—'}</td>
   </tr>`).join('');
 
+  // Gráficos InBody-style (sempre aparecem na última medição)
+  const latest = ms[ms.length - 1];
+  const inbodyCharts = `
+    <div class="grid grid-2">
+      <div class="card">
+        <div class="card-title">Análise Músculo-Gordura <small>última medição</small></div>
+        ${renderMuscleFatBars(latest, currentPatient)}
+      </div>
+      <div class="card">
+        <div class="card-title">Análise de Obesidade <small>IMC e % gordura</small></div>
+        ${renderObesityBars(latest, currentPatient)}
+      </div>
+    </div>`;
+
   const chartCards = ms.length >= 2 ? `
     <div class="grid grid-2">
       <div class="card"><div class="card-title">Peso <small>${ms.length} medições</small></div><div class="chart-container"><canvas id="ch-weight"></canvas></div></div>
@@ -971,7 +1010,7 @@ function renderEvolution() {
       <small>Medição atual: ${ms.length}</small>
     </div>`;
 
-  document.getElementById('content').innerHTML = chartCards + `
+  document.getElementById('content').innerHTML = inbodyCharts + chartCards + `
     <div class="card">
       <div class="card-title">Histórico de medições <small>${ms.length} registro(s)</small></div>
       <table class="evo-tbl">
@@ -981,6 +1020,159 @@ function renderEvolution() {
     </div>`;
 
   if (ms.length >= 2) renderCharts(ms);
+}
+
+
+// ── GRÁFICOS INBODY-STYLE ─────────────────────────────────────────────────
+
+/**
+ * Faixas de referência por idade e sexo.
+ * Baseado em ACSM / OMS / Pollock (homens 40-59, referências clínicas).
+ */
+function getReferenceBands(patient) {
+  const sex = patient.sex;
+  const age = patient.age ?? 40;  // fallback para 40 se idade ausente
+
+  // % GORDURA (baseado em ACSM/OMS)
+  let fatMin, fatMax;
+  if (sex === 'F') {
+    if (age < 40)      { fatMin = 21; fatMax = 33; }
+    else if (age < 60) { fatMin = 23; fatMax = 34; }
+    else               { fatMin = 24; fatMax = 36; }
+  } else {
+    // Masculino ou não informado (usa masculino como padrão)
+    if (age < 40)      { fatMin = 8;  fatMax = 19; }
+    else if (age < 60) { fatMin = 11; fatMax = 22; }
+    else               { fatMin = 13; fatMax = 25; }
+  }
+
+  // IMC (OMS — universal)
+  const bmiMin = 18.5;
+  const bmiMax = 24.9;
+
+  return { fatMin, fatMax, bmiMin, bmiMax, sex, age };
+}
+
+/**
+ * Gera uma barra horizontal "Abaixo / Normal / Acima" com marcador do paciente.
+ */
+function renderRangeBar(value, rangeMin, rangeMax, unit = '', label = '') {
+  if (value == null) {
+    return `<div style="padding:1rem;color:#bbb;font-size:var(--fs-sm);text-align:center">—</div>`;
+  }
+
+  // Escala: queremos mostrar de (min * 0.6) até (max * 1.5), aproximadamente
+  const scaleMin = rangeMin * 0.6;
+  const scaleMax = rangeMax * 1.8;
+  const clamp = (x) => Math.max(scaleMin, Math.min(scaleMax, x));
+
+  const pct = (x) => ((clamp(x) - scaleMin) / (scaleMax - scaleMin)) * 100;
+
+  const leftEnd  = pct(rangeMin);
+  const rightEnd = pct(rangeMax);
+  const markerPos = pct(value);
+
+  // Classificação
+  let status, statusColor;
+  if (value < rangeMin) { status = 'Abaixo';  statusColor = '#1a6fa8'; }
+  else if (value <= rangeMax) { status = 'Normal'; statusColor = '#2d6a1f'; }
+  else { status = 'Acima'; statusColor = '#c0392b'; }
+
+  return `
+    <div style="margin:12px 0">
+      ${label ? `<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px">
+        <span style="font-size:var(--fs-sm);font-weight:500">${label}</span>
+        <span style="font-size:var(--fs-sm);color:${statusColor};font-weight:600">
+          ${value.toFixed(1)}${unit}
+          <span style="font-size:var(--fs-xs);margin-left:6px;padding:2px 8px;border-radius:4px;background:${statusColor}15">${status}</span>
+        </span>
+      </div>` : ''}
+      <div style="position:relative;height:28px;border-radius:6px;overflow:hidden;background:linear-gradient(to right,
+        #a8c9e8 0%,
+        #a8c9e8 ${leftEnd}%,
+        #a8d89b ${leftEnd}%,
+        #a8d89b ${rightEnd}%,
+        #e8a89b ${rightEnd}%,
+        #e8a89b 100%
+      )">
+        <div style="position:absolute;top:-2px;bottom:-2px;left:calc(${markerPos}% - 2px);width:4px;background:#1a1a18;border-radius:2px;box-shadow:0 0 0 2px white"></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;margin-top:4px;font-size:10px;color:#999">
+        <span>Abaixo</span>
+        <span style="margin-left:${leftEnd}%">Normal</span>
+        <span>Acima</span>
+      </div>
+    </div>`;
+}
+
+/**
+ * Gráfico Músculo-Gordura (Peso / Massa Muscular / Massa de Gordura).
+ * Inspirado no InBody mas com faixas mais clínicas.
+ */
+function renderMuscleFatBars(m, patient) {
+  const ref = getReferenceBands(patient);
+
+  // Para peso: usa IMC como referência (peso ideal = IMC 18.5-25 × altura²)
+  const h_m = patient.height_cm ? patient.height_cm / 100 : null;
+  let weightMin = null, weightMax = null;
+  if (h_m) {
+    weightMin = ref.bmiMin * h_m * h_m;
+    weightMax = ref.bmiMax * h_m * h_m;
+  }
+
+  // Para massa muscular: estimativa baseada em % da massa magra esperada
+  // FFM esperada ≈ peso × (1 - fatPct_alvo). Músculo esquelético ≈ 50% da FFM
+  // Para simplificar, usamos faixa relativa ao peso atual
+  let muscMin = null, muscMax = null;
+  if (m.weight) {
+    if (patient.sex === 'F') {
+      muscMin = m.weight * 0.32;  // ~32% do peso em mulheres
+      muscMax = m.weight * 0.42;  // ~42%
+    } else {
+      muscMin = m.weight * 0.38;  // ~38% do peso em homens
+      muscMax = m.weight * 0.48;  // ~48%
+    }
+  }
+
+  // Para massa de gordura: peso × fatPct_faixa
+  let fatKgMin = null, fatKgMax = null;
+  if (m.weight) {
+    fatKgMin = m.weight * ref.fatMin / 100;
+    fatKgMax = m.weight * ref.fatMax / 100;
+  }
+
+  const fatKg = (m.weight && m.fat_pct) ? m.weight * m.fat_pct / 100 : null;
+
+  return `
+    ${weightMin != null
+      ? renderRangeBar(m.weight, weightMin, weightMax, ' kg', 'Peso')
+      : `<div style="padding:12px 0"><div style="font-size:var(--fs-sm);font-weight:500">Peso</div>
+         <div style="font-size:var(--fs-sm);color:#999;margin-top:4px">Altura não informada — faixa indisponível</div></div>`}
+    ${muscMin != null
+      ? renderRangeBar(m.muscle_kg, muscMin, muscMax, ' kg', 'Massa muscular')
+      : ''}
+    ${fatKgMin != null
+      ? renderRangeBar(fatKg, fatKgMin, fatKgMax, ' kg', 'Massa de gordura')
+      : ''}
+    <div style="margin-top:14px;padding-top:12px;border-top:1px solid #eee;font-size:var(--fs-xs);color:#999;line-height:1.5">
+      Faixas baseadas em ACSM/OMS. ${patient.age != null ? `Ajustado para ${patient.age} anos, ${patient.sex === 'F' ? 'feminino' : 'masculino'}.` : 'Ajuste por idade indisponível.'}
+    </div>`;
+}
+
+/**
+ * Gráfico de Obesidade (IMC e % Gordura Corporal).
+ */
+function renderObesityBars(m, patient) {
+  const ref = getReferenceBands(patient);
+
+  return `
+    ${renderRangeBar(m.bmi, ref.bmiMin, ref.bmiMax, '', 'IMC')}
+    ${renderRangeBar(m.fat_pct, ref.fatMin, ref.fatMax, '%', '% Gordura corporal')}
+    <div style="margin-top:14px;padding-top:12px;border-top:1px solid #eee;font-size:var(--fs-xs);color:#999;line-height:1.5">
+      IMC: faixa OMS (18,5–24,9). Gordura: faixa ACSM para ${patient.sex === 'F' ? 'mulheres' : 'homens'}
+      ${patient.age != null ? ` de ${ref.age < 40 ? '20-39' : ref.age < 60 ? '40-59' : '60+'} anos` : ''}
+      (${ref.fatMin}%–${ref.fatMax}%).
+    </div>`;
 }
 
 function renderCharts(ms) {
