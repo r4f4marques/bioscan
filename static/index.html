@@ -415,7 +415,10 @@ function renderOverview() {
       <div class="card">
         <div class="card-title">Interpretação IA <small>Groq llama-3.3-70b</small></div>
         <div id="interpret-box" class="interpret-box" style="color:#bbb;font-style:italic">Clique em "Gerar interpretação" para analisar.</div>
-        <button class="btn btn-primary" style="margin-top:.75rem;width:100%" onclick="getInterpretation()">Gerar interpretação</button>
+        <div style="display:flex;gap:.5rem;margin-top:.75rem">
+          <button class="btn btn-primary" style="flex:1" onclick="getInterpretation()">Gerar interpretação</button>
+          <button class="btn" style="flex:1" onclick="downloadReport()">↓ Baixar relatório PDF</button>
+        </div>
       </div>` : `
       <div class="card">
         <div class="card-title">Resumo clínico</div>
@@ -439,6 +442,48 @@ async function getInterpretation() {
     box.style.fontStyle = 'normal';
   } else {
     box.textContent = data?.error || 'Erro ao gerar interpretação.';
+  }
+}
+
+async function downloadReport() {
+  const btn = event.target;
+  const originalText = btn.textContent;
+  btn.textContent = 'Gerando PDF...';
+  btn.disabled = true;
+
+  try {
+    const res = await fetch(`/bioscan/patients/${currentPatient.id}/report`, {
+      headers: {'Authorization': 'Bearer ' + token}
+    });
+
+    if (res.status === 401) { logout(); return; }
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({error: 'Erro desconhecido'}));
+      alert('Erro ao gerar relatório: ' + (err.error || res.statusText));
+      return;
+    }
+
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+
+    // Pega o filename do header Content-Disposition
+    const disposition = res.headers.get('Content-Disposition') || '';
+    const match = disposition.match(/filename=([^;]+)/);
+    a.download = match ? match[1].replace(/"/g, '').trim()
+                       : `BioScan_${currentPatient.name}.pdf`;
+
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    alert('Erro ao baixar relatório: ' + e.message);
+  } finally {
+    btn.textContent = originalText;
+    btn.disabled = false;
   }
 }
 
