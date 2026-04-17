@@ -285,6 +285,51 @@ async function loadPatients() {
     return;
   }
 
+  // Guarda a lista completa para filtro client-side
+  window._allPatients = patients;
+
+  document.getElementById('content').innerHTML = `
+    <div style="margin-bottom:1rem">
+      <input type="text" id="pt-search" placeholder="Buscar por nome ou CPF..."
+             style="width:100%;padding:10px 14px;border:1px solid #ddd;border-radius:8px;font-size:13px;color:#1a1a18"
+             oninput="filterPatients(this.value)"
+             autocomplete="off">
+    </div>
+    <div id="pt-list"></div>`;
+
+  renderPatientList(patients);
+}
+
+function filterPatients(query) {
+  const all = window._allPatients || [];
+  const q = query.toLowerCase().trim();
+
+  if (!q) {
+    renderPatientList(all);
+    return;
+  }
+
+  // Remove formatação do CPF para busca: "123.456.789-00" → "12345678900"
+  const qDigits = q.replace(/\D/g, '');
+
+  const filtered = all.filter(p => {
+    const nameMatch = p.name.toLowerCase().includes(q);
+    const cpfMatch = qDigits && p.cpf && p.cpf.replace(/\D/g, '').includes(qDigits);
+    return nameMatch || cpfMatch;
+  });
+
+  renderPatientList(filtered);
+}
+
+function renderPatientList(patients) {
+  const container = document.getElementById('pt-list');
+  if (!container) return;
+
+  if (!patients.length) {
+    container.innerHTML = '<div style="text-align:center;padding:2rem;color:#bbb;font-size:13px">Nenhum paciente encontrado.</div>';
+    return;
+  }
+
   const rows = patients.map(p => {
     const l = p.latest || {};
     return `<div class="pt-row" onclick="selectPatient(${p.id})">
@@ -299,9 +344,9 @@ async function loadPatients() {
     </div>`;
   }).join('');
 
-  document.getElementById('content').innerHTML = `
+  container.innerHTML = `
     <div class="pt-table">
-      <div class="pt-head"><div>Paciente</div><div>IMC</div><div>Gordura</div><div>Visceral</div><div></div></div>
+      <div class="pt-head"><div>Paciente (${patients.length})</div><div>IMC</div><div>Gordura</div><div>Visceral</div><div></div></div>
       ${rows}
     </div>`;
 }
