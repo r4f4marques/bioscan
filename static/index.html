@@ -580,130 +580,52 @@ function showBodyMode(mode) {
 
   // SVG do corpo humano — silhueta anatômica com curvas Bézier
   const svg = `
-    <svg viewBox="0 0 340 600" xmlns="http://www.w3.org/2000/svg">
-      <defs>
-        <linearGradient id="skin-neutral" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stop-color="#e0dfd8"/>
-          <stop offset="100%" stop-color="#c8c7c0"/>
-        </linearGradient>
-      </defs>
+    <svg viewBox="-55 10 320 540" xmlns="http://www.w3.org/2000/svg">
+      <path d="M 100 20 C 90 20, 82 28, 79 40 C 77 48, 77 56, 79 63 C 76 65, 76 68, 78 71 C 80 72, 82 72, 83 71 C 85 76, 87 80, 89 82 L 89 92 L 111 92 L 111 82 C 113 80, 115 76, 117 71 C 118 72, 120 72, 122 71 C 124 68, 124 65, 121 63 C 123 56, 123 48, 121 40 C 118 28, 110 20, 100 20 Z"
+        fill="#d5d4ce" stroke="#999" stroke-width="0.8"/>
 
-      <path d="M 170 30
-               C 185 30, 196 42, 196 60
-               C 196 74, 192 85, 186 92
-               C 184 98, 182 102, 180 104
-               L 160 104
-               C 158 102, 156 98, 154 92
-               C 148 85, 144 74, 144 60
-               C 144 42, 155 30, 170 30 Z"
-            fill="url(#skin-neutral)" stroke="#999" stroke-width="1"/>
+      <path d="M 89 92 L 89 98 Q 86 104, 80 108 L 80 112 Q 90 115, 100 115 Q 110 115, 120 112 L 120 108 Q 114 104, 111 98 L 111 92 Z"
+        fill="#d5d4ce" stroke="#999" stroke-width="0.8"/>
 
-      <path d="M 161 104 Q 160 112, 155 120 Q 170 122, 185 120 Q 180 112, 179 104 Z"
-            fill="url(#skin-neutral)" stroke="#999" stroke-width="1"/>
+      <path d="M 80 112 C 70 114, 60 118, 52 124 C 48 128, 46 132, 45 138 L 45 146 C 48 152, 54 156, 62 158 C 64 162, 65 170, 66 180 C 67 194, 68 208, 68 220 C 68 232, 67 242, 66 252 C 65 262, 64 272, 63 280 C 62 288, 62 294, 64 300 C 66 306, 69 310, 73 312 L 127 312 C 131 310, 134 306, 136 300 C 138 294, 138 288, 137 280 C 136 272, 135 262, 134 252 C 133 242, 132 232, 132 220 C 132 208, 133 194, 134 180 C 135 170, 136 162, 138 158 C 146 156, 152 152, 155 146 L 155 138 C 154 132, 152 128, 148 124 C 140 118, 130 114, 120 112 Z"
+        fill="${colorFor(data.trunk)}" stroke="#555" stroke-width="0.8" stroke-linejoin="round"/>
 
-      <path d="M 155 118
-               C 140 120, 125 126, 118 138
-               C 113 148, 111 158, 110 168
-               L 114 176
-               C 117 188, 120 202, 122 216
-               C 123 228, 123 238, 122 248
-               C 120 260, 118 272, 118 284
-               C 119 296, 123 306, 128 316
-               Q 134 326, 140 332
-               L 200 332
-               Q 206 326, 212 316
-               C 217 306, 221 296, 222 284
-               C 222 272, 220 260, 218 248
-               C 217 238, 217 228, 218 216
-               C 220 202, 223 188, 226 176
-               L 230 168
-               C 229 158, 227 148, 222 138
-               C 215 126, 200 120, 185 118 Z"
-            fill="${colorFor(data.trunk)}" stroke="#666" stroke-width="1.2" stroke-linejoin="round"/>
+      <path d="M 52 124 C 44 128, 38 134, 34 142 C 32 150, 31 158, 30 166 C 29 176, 28 186, 27 196 C 26 208, 25 220, 24 232 C 23 242, 23 250, 24 256 C 26 262, 29 266, 33 268 C 36 268, 39 266, 40 262 C 41 256, 42 248, 43 240 C 44 230, 45 220, 46 208 C 47 198, 48 188, 50 178 C 52 168, 54 158, 56 148 C 58 140, 57 132, 56 126 Z"
+        fill="${colorFor(data.right_arm)}" stroke="#555" stroke-width="0.8" stroke-linejoin="round"/>
+      <circle cx="30" cy="280" r="9" fill="${colorFor(data.right_arm)}" stroke="#555" stroke-width="0.8"/>
 
-      <path d="M 118 138
-               C 108 142, 100 150, 94 162
-               C 90 172, 88 184, 87 196
-               C 86 210, 85 222, 84 234
-               C 83 246, 82 258, 81 268
-               C 80 278, 80 286, 82 294
-               Q 85 302, 90 305
-               C 94 306, 98 305, 100 302
-               Q 103 294, 104 286
-               C 105 278, 106 270, 107 258
-               C 108 246, 109 234, 110 222
-               C 111 210, 112 198, 114 186
-               Q 116 174, 119 162
-               C 121 152, 122 144, 118 138 Z"
-            fill="${colorFor(data.right_arm)}" stroke="#666" stroke-width="1.2" stroke-linejoin="round"/>
+      <path d="M 148 124 C 156 128, 162 134, 166 142 C 168 150, 169 158, 170 166 C 171 176, 172 186, 173 196 C 174 208, 175 220, 176 232 C 177 242, 177 250, 176 256 C 174 262, 171 266, 167 268 C 164 268, 161 266, 160 262 C 159 256, 158 248, 157 240 C 156 230, 155 220, 154 208 C 153 198, 152 188, 150 178 C 148 168, 146 158, 144 148 C 142 140, 143 132, 144 126 Z"
+        fill="${colorFor(data.left_arm)}" stroke="#555" stroke-width="0.8" stroke-linejoin="round"/>
+      <circle cx="170" cy="280" r="9" fill="${colorFor(data.left_arm)}" stroke="#555" stroke-width="0.8"/>
 
-      <path d="M 222 138
-               C 232 142, 240 150, 246 162
-               C 250 172, 252 184, 253 196
-               C 254 210, 255 222, 256 234
-               C 257 246, 258 258, 259 268
-               C 260 278, 260 286, 258 294
-               Q 255 302, 250 305
-               C 246 306, 242 305, 240 302
-               Q 237 294, 236 286
-               C 235 278, 234 270, 233 258
-               C 232 246, 231 234, 230 222
-               C 229 210, 228 198, 226 186
-               Q 224 174, 221 162
-               C 219 152, 218 144, 222 138 Z"
-            fill="${colorFor(data.left_arm)}" stroke="#666" stroke-width="1.2" stroke-linejoin="round"/>
+      <path d="M 73 312 C 72 322, 71 334, 70 348 C 69 362, 68 378, 68 394 C 68 410, 68 426, 69 440 C 70 454, 71 466, 73 476 C 75 484, 78 490, 82 492 L 95 492 C 97 488, 98 480, 98 470 C 98 456, 98 440, 98 424 C 98 408, 98 390, 98 372 C 98 354, 98 338, 98 324 C 98 318, 98 314, 98 312 Z"
+        fill="${colorFor(data.right_leg)}" stroke="#555" stroke-width="0.8" stroke-linejoin="round"/>
+      <ellipse cx="88" cy="504" rx="16" ry="6" fill="${colorFor(data.right_leg)}" stroke="#555" stroke-width="0.8"/>
 
-      <path d="M 140 332
-               C 138 348, 136 366, 135 384
-               C 134 402, 133 420, 133 438
-               C 134 456, 135 472, 138 486
-               C 140 496, 142 504, 145 510
-               Q 150 514, 158 514
-               C 163 513, 167 510, 168 504
-               Q 170 492, 170 478
-               C 170 462, 169 444, 169 424
-               C 169 404, 169 384, 169 364
-               C 169 350, 169 340, 168 332 Z"
-            fill="${colorFor(data.right_leg)}" stroke="#666" stroke-width="1.2" stroke-linejoin="round"/>
+      <path d="M 127 312 C 128 322, 129 334, 130 348 C 131 362, 132 378, 132 394 C 132 410, 132 426, 131 440 C 130 454, 129 466, 127 476 C 125 484, 122 490, 118 492 L 105 492 C 103 488, 102 480, 102 470 C 102 456, 102 440, 102 424 C 102 408, 102 390, 102 372 C 102 354, 102 338, 102 324 C 102 318, 102 314, 102 312 Z"
+        fill="${colorFor(data.left_leg)}" stroke="#555" stroke-width="0.8" stroke-linejoin="round"/>
+      <ellipse cx="112" cy="504" rx="16" ry="6" fill="${colorFor(data.left_leg)}" stroke="#555" stroke-width="0.8"/>
 
-      <path d="M 200 332
-               C 202 348, 204 366, 205 384
-               C 206 402, 207 420, 207 438
-               C 206 456, 205 472, 202 486
-               C 200 496, 198 504, 195 510
-               Q 190 514, 182 514
-               C 177 513, 173 510, 172 504
-               Q 170 492, 170 478
-               C 170 462, 171 444, 171 424
-               C 171 404, 171 384, 171 364
-               C 171 350, 171 340, 172 332 Z"
-            fill="${colorFor(data.left_leg)}" stroke="#666" stroke-width="1.2" stroke-linejoin="round"/>
+      <line x1="27" y1="200" x2="0" y2="210" stroke="#ccc" stroke-width="0.5" stroke-dasharray="2 2"/>
+      <line x1="173" y1="200" x2="200" y2="210" stroke="#ccc" stroke-width="0.5" stroke-dasharray="2 2"/>
+      <line x1="100" y1="220" x2="155" y2="180" stroke="#ccc" stroke-width="0.5" stroke-dasharray="2 2"/>
+      <line x1="85" y1="400" x2="40" y2="420" stroke="#ccc" stroke-width="0.5" stroke-dasharray="2 2"/>
+      <line x1="115" y1="400" x2="160" y2="420" stroke="#ccc" stroke-width="0.5" stroke-dasharray="2 2"/>
 
-      <circle cx="92" cy="318" r="10" fill="url(#skin-neutral)" stroke="#999" stroke-width="1"/>
-      <circle cx="248" cy="318" r="10" fill="url(#skin-neutral)" stroke="#999" stroke-width="1"/>
+      <text x="-50" y="208" font-size="9" fill="#1a1a18" font-weight="500">Braço D</text>
+      <text x="-50" y="220" font-size="8" fill="#666">${fmt(data.right_arm)}${unit}</text>
 
-      <ellipse cx="152" cy="522" rx="16" ry="6" fill="url(#skin-neutral)" stroke="#999"/>
-      <ellipse cx="188" cy="522" rx="16" ry="6" fill="url(#skin-neutral)" stroke="#999"/>
+      <text x="178" y="208" font-size="9" fill="#1a1a18" font-weight="500">Braço E</text>
+      <text x="178" y="220" font-size="8" fill="#666">${fmt(data.left_arm)}${unit}</text>
 
-      <line x1="55" y1="230" x2="85" y2="230" stroke="#bbb" stroke-width="0.6" stroke-dasharray="2 2"/>
-      <text x="15" y="228" class="seg-label" fill="#1a1a18">Braço D</text>
-      <text x="15" y="242" class="seg-label-sub" fill="#666">${fmt(data.right_arm)}${unit}</text>
+      <text x="158" y="178" font-size="9" fill="#1a1a18" font-weight="500">Tronco</text>
+      <text x="158" y="190" font-size="8" fill="#666">${fmt(data.trunk)}${unit}</text>
 
-      <line x1="255" y1="230" x2="285" y2="230" stroke="#bbb" stroke-width="0.6" stroke-dasharray="2 2"/>
-      <text x="290" y="228" class="seg-label" fill="#1a1a18">Braço E</text>
-      <text x="290" y="242" class="seg-label-sub" fill="#666">${fmt(data.left_arm)}${unit}</text>
+      <text x="-50" y="418" font-size="9" fill="#1a1a18" font-weight="500">Perna D</text>
+      <text x="-50" y="430" font-size="8" fill="#666">${fmt(data.right_leg)}${unit}</text>
 
-      <line x1="205" y1="225" x2="235" y2="210" stroke="#bbb" stroke-width="0.6" stroke-dasharray="2 2"/>
-      <text x="240" y="208" class="seg-label" fill="#1a1a18">Tronco</text>
-      <text x="240" y="222" class="seg-label-sub" fill="#666">${fmt(data.trunk)}${unit}</text>
-
-      <line x1="135" y1="420" x2="75" y2="430" stroke="#bbb" stroke-width="0.6" stroke-dasharray="2 2"/>
-      <text x="20" y="428" class="seg-label" fill="#1a1a18">Perna D</text>
-      <text x="20" y="442" class="seg-label-sub" fill="#666">${fmt(data.right_leg)}${unit}</text>
-
-      <line x1="205" y1="420" x2="265" y2="430" stroke="#bbb" stroke-width="0.6" stroke-dasharray="2 2"/>
-      <text x="270" y="428" class="seg-label" fill="#1a1a18">Perna E</text>
-      <text x="270" y="442" class="seg-label-sub" fill="#666">${fmt(data.left_leg)}${unit}</text>
+      <text x="163" y="418" font-size="9" fill="#1a1a18" font-weight="500">Perna E</text>
+      <text x="163" y="430" font-size="8" fill="#666">${fmt(data.left_leg)}${unit}</text>
     </svg>`;
 
   document.getElementById('body-svg').innerHTML = svg;
