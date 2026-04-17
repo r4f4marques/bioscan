@@ -24,7 +24,24 @@ def create_app() -> Flask:
     """App factory para uso standalone / testes."""
     app = Flask(__name__, static_folder="../static", static_url_path="/static")
 
-    database_url = os.environ.get("DATABASE_URL", "sqlite:///bioscan.db")
+    database_url = os.environ.get("DATABASE_URL")
+
+    # Em produção (Railway/Heroku), DATABASE_URL é obrigatória.
+    # Só caímos em SQLite se explicitamente rodando em dev local.
+    if not database_url:
+        is_dev = os.environ.get("FLASK_ENV") == "development" or \
+                 os.environ.get("BIOSCAN_ALLOW_SQLITE") == "1"
+        if is_dev:
+            database_url = "sqlite:///bioscan.db"
+            print("[BioScan] AVISO: DATABASE_URL ausente. Usando SQLite local (dev only).")
+        else:
+            raise RuntimeError(
+                "DATABASE_URL não definida. Configure a variável de ambiente "
+                "para apontar para o PostgreSQL em produção. "
+                "Para rodar localmente com SQLite, defina BIOSCAN_ALLOW_SQLITE=1."
+            )
+
+    # Railway/Heroku às vezes usam postgres:// (esquema legado)
     if database_url.startswith("postgres://"):
         database_url = database_url.replace("postgres://", "postgresql://", 1)
 
@@ -34,6 +51,10 @@ def create_app() -> Flask:
         SECRET_KEY                     = os.environ.get("SECRET_KEY", "dev-only-change-in-prod"),
         MAX_CONTENT_LENGTH             = 5 * 1024 * 1024,
     )
+
+    # Loga qual banco está sendo usado (útil para debug)
+    db_display = database_url.split("@")[-1] if "@" in database_url else database_url
+    print(f"[BioScan] Banco de dados: {db_display}")
 
     db.init_app(app)
     app.register_blueprint(bioscan_bp, url_prefix="/bioscan")
