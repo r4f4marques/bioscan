@@ -1,6 +1,5 @@
 """
-BioScan Healthspan — API Routes (Flask Blueprint)
-Plugável no TriDash: registre com app.register_blueprint(bioscan_bp, url_prefix="/bioscan")
+BioScan Healthspan — API Routes
 """
 
 import os
@@ -19,7 +18,6 @@ JWT_EXPIRES = timedelta(hours=12)
 
 
 def _jwt_secret():
-    """Lê o JWT_SECRET em tempo de execução."""
     return os.environ.get("JWT_SECRET", "dev-only-change-in-prod")
 
 
@@ -28,29 +26,11 @@ def health():
     return jsonify({"status": "ok", "service": "bioscan-healthspan"})
 
 
-@bioscan_bp.get("/debug-jwt")
-def debug_jwt():
-    secret = _jwt_secret()
-    return jsonify({"jwt_secret_length": len(secret), "jwt_secret_prefix": secret[:8]})
-
-
-@bioscan_bp.get("/debug-validate")
-def debug_validate():
-    auth = request.headers.get("Authorization", "")
-    token = auth.replace("Bearer ", "")
-    secret = _jwt_secret()
-    try:
-        payload = jwt.decode(token, secret, algorithms=["HS256"])
-        return jsonify({"ok": True, "payload": payload})
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e), "error_type": type(e).__name__})
-
-
 # ── JWT AUTH ──────────────────────────────────────────────────────────────
 
 def create_token(user: User) -> str:
     payload = {
-        "sub":  str(user.id),  # PyJWT >= 2.8 exige string
+        "sub":  str(user.id),
         "role": user.role,
         "exp":  datetime.now(timezone.utc) + JWT_EXPIRES,
     }
@@ -58,7 +38,6 @@ def create_token(user: User) -> str:
 
 
 def require_auth(fn):
-    """Decorator: valida Bearer token e injeta g.user."""
     @wraps(fn)
     def wrapper(*args, **kwargs):
         auth = request.headers.get("Authorization", "")
@@ -71,7 +50,7 @@ def require_auth(fn):
         except jwt.InvalidTokenError:
             return jsonify({"error": "Token inválido"}), 401
 
-        user = db.session.get(User, int(payload["sub"]))  # sub é string, converte para int
+        user = db.session.get(User, int(payload["sub"]))
         if not user or not user.is_active:
             return jsonify({"error": "Usuário não encontrado"}), 401
         g.user = user
@@ -80,7 +59,6 @@ def require_auth(fn):
 
 
 def require_role(*roles):
-    """Decorator: exige que g.user tenha um dos roles listados."""
     def decorator(fn):
         @wraps(fn)
         @require_auth
@@ -96,11 +74,29 @@ def require_role(*roles):
 
 @bioscan_bp.post("/auth/login")
 def login():
+    """
+    Login unificado:
+    - Médico: { email, password }
+    - Paciente: { email, birth_date }  (formato YYYY-MM-DD ou DD/MM/YYYY)
+    """
     data = request.get_json(silent=True) or {}
-    user = User.query.filter_by(email=data.get("email", "").lower()).first()
+    email = data.get("email", "").lower().strip()
+    user = User.query.filter_by(email=email).first()
 
-    if not user or not user.check_password(data.get("password", "")):
+    if not user or not user.is_active:
         return jsonify({"error": "Credenciais inválidas"}), 401
+
+    # Paciente: autentica com data de nascimento
+    if user.role == "patient":
+        birth_date = data.get("birth_date", "")
+        if not user.check_birth_date(birth_date):
+            return jsonify({"error": "Credenciais inválidas"}), 401
+
+    # Médico/admin: autentica com senha
+    else:
+        password = data.get("password", "")
+        if not user.check_password(password):
+            return jsonify({"error": "Credenciais inválidas"}), 401
 
     return jsonify({
         "token": create_token(user),
@@ -108,17 +104,32 @@ def login():
     })
 
 
-@bioscan_bp.post("/auth/register")
-@require_role("doctor")
-def register():
+@bioscan_bp.post("/auth/create-doctor")
+def create_doctor():
+    """
+    Cria um médico. Protegido por ADMIN_KEY no header X-Admin-Key.
+    Uso via Terminal:
+        curl -X POST .../bioscan/auth/create-doctor \
+          -H "X-Admin-Key: SUA_ADMIN_KEY" \
+          -H "Content-Type: application/json" \
+          -d '{"name":"Dr. Rafael","email":"rafael@clinica.com","password":"senha123"}'
+    """
+    admin_key = request.headers.get("X-Admin-Key", "")
+    expected  = os.environ.get("ADMIN_KEY", "")
+    if not expected or admin_key != expected:
+        return jsonify({"error": "Não autorizado"}), 401
+
     data = request.get_json(silent=True) or {}
-    if User.query.filter_by(email=data.get("email", "").lower()).first():
+    if not data.get("email") or not data.get("password"):
+        return jsonify({"error": "email e password obrigatórios"}), 400
+
+    if User.query.filter_by(email=data["email"].lower()).first():
         return jsonify({"error": "E-mail já cadastrado"}), 409
 
     user = User(
         email=data["email"].lower(),
-        role=data.get("role", "patient"),
-        name=data.get("name"),
+        role="doctor",
+        name=data.get("name", ""),
     )
     user.set_password(data["password"])
     db.session.add(user)
@@ -138,24 +149,57 @@ def list_patients():
 @bioscan_bp.post("/patients")
 @require_role("doctor")
 def create_patient():
+    """
+    Cria paciente e cria automaticamente uma conta de usuário vinculada.
+    Body: { name, email, birth_date (YYYY-MM-DD), sex, height_cm, tags, notes }
+    O paciente faz login com email + birth_date.
+    """
     data = request.get_json(silent=True) or {}
     if not data.get("name"):
         return jsonify({"error": "Nome obrigatório"}), 400
+    if not data.get("email"):
+        return jsonify({"error": "E-mail obrigatório"}), 400
+    if not data.get("birth_date"):
+        return jsonify({"error": "Data de nascimento obrigatória"}), 400
 
+    # Verifica se e-mail já existe
+    if User.query.filter_by(email=data["email"].lower()).first():
+        return jsonify({"error": "E-mail já cadastrado"}), 409
+
+    # Cria o registro do paciente
+    birth = datetime.strptime(data["birth_date"], "%Y-%m-%d").date()
     p = Patient(
         name       = data["name"],
+        birth_date = birth,
         sex        = data.get("sex"),
         height_cm  = data.get("height_cm"),
         notes      = data.get("notes"),
         tags       = ",".join(data.get("tags", [])),
         created_by = g.user.id,
     )
-    if data.get("birth_date"):
-        p.birth_date = datetime.strptime(data["birth_date"], "%Y-%m-%d").date()
-
     db.session.add(p)
+    db.session.flush()
+
+    # Cria conta de usuário vinculada ao paciente
+    user = User(
+        email      = data["email"].lower(),
+        role       = "patient",
+        name       = data["name"],
+        birth_date = birth,
+        patient_id = p.id,
+    )
+    db.session.add(user)
     db.session.commit()
-    return jsonify(p.to_dict()), 201
+
+    return jsonify({
+        "patient": p.to_dict(),
+        "user":    user.to_dict(),
+        "login_info": {
+            "email":      user.email,
+            "birth_date": data["birth_date"],
+            "note":       "Paciente faz login com email + data de nascimento",
+        }
+    }), 201
 
 
 @bioscan_bp.get("/patients/<int:pid>")
@@ -205,7 +249,6 @@ def list_measurements(pid):
         return jsonify({"error": "Acesso negado"}), 403
 
     q = Measurement.query.filter_by(patient_id=pid)
-
     from_date = request.args.get("from")
     to_date   = request.args.get("to")
     if from_date:
@@ -213,8 +256,7 @@ def list_measurements(pid):
     if to_date:
         q = q.filter(Measurement.measured_at <= to_date)
 
-    measurements = q.order_by(Measurement.measured_at).all()
-    return jsonify([m.to_dict() for m in measurements])
+    return jsonify([m.to_dict() for m in q.order_by(Measurement.measured_at).all()])
 
 
 @bioscan_bp.post("/patients/<int:pid>/measurements")
@@ -222,11 +264,9 @@ def list_measurements(pid):
 def add_measurement(pid):
     db.get_or_404(Patient, pid)
     data = request.get_json(silent=True) or {}
-
     m = Measurement(patient_id=pid, source="manual",
                     measured_at=datetime.now(timezone.utc))
     _fill_measurement(m, data)
-
     db.session.add(m)
     db.session.commit()
     return jsonify(m.to_dict()), 201
@@ -262,12 +302,10 @@ def import_csv(pid):
     for row in rows:
         measured_at = row.pop("measured_at")
         exists = Measurement.query.filter_by(
-            patient_id=pid, measured_at=measured_at
-        ).first()
+            patient_id=pid, measured_at=measured_at).first()
         if exists:
             skipped += 1
             continue
-
         m = Measurement(patient_id=pid, source="tanita_csv",
                         measured_at=measured_at)
         _fill_measurement(m, row)
@@ -275,7 +313,6 @@ def import_csv(pid):
         inserted.append(m)
 
     db.session.commit()
-
     return jsonify({
         "inserted": len(inserted),
         "skipped":  skipped,
@@ -287,13 +324,11 @@ def import_csv(pid):
 @require_role("doctor")
 def import_csv_raw():
     pid = request.form.get("patient_id")
-
     if "csv" not in request.files:
         return jsonify({"error": "Campo 'csv' não encontrado"}), 400
 
     try:
-        content = request.files["csv"].read()
-        rows = parse_tanita_csv(content)
+        rows = parse_tanita_csv(request.files["csv"].read())
     except ValueError as e:
         return jsonify({"error": str(e)}), 422
 
@@ -307,7 +342,6 @@ def import_csv_raw():
 
     inserted = _bulk_insert(int(pid), rows)
     db.session.commit()
-
     return jsonify({
         "patient_id": int(pid),
         "inserted":   len(inserted),
@@ -377,7 +411,7 @@ Use linguagem acessível para o médico compartilhar com o paciente.
 Não faça diagnósticos definitivos. Foque em tendências e recomendações de estilo de vida.
 Responda sempre em português brasileiro."""
 
-    user_prompt = f"""Paciente: {p.name}, {p.age} anos, sexo {p.sex or 'não informado'}, altura {p.height_cm or 'não informada'} cm.
+    user_prompt = f"""Paciente: {p.name}, {p.age or 'idade não informada'} anos, sexo {p.sex or 'não informado'}, altura {p.height_cm or 'não informada'} cm.
 
 MEDIÇÃO MAIS RECENTE ({last.measured_at.strftime('%d/%m/%Y')}):
 - Peso: {last.weight} kg | IMC: {last.bmi}
@@ -386,7 +420,7 @@ MEDIÇÃO MAIS RECENTE ({last.measured_at.strftime('%d/%m/%Y')}):
 - Massa óssea: {last.bone_kg} kg
 - Água corporal: {last.water_pct}%
 - Metabolismo basal: {last.bmr} kcal
-- Idade metabólica: {last.meta_age} anos (idade real: {p.age})
+- Idade metabólica: {last.meta_age} anos (idade real: {p.age or 'não informada'})
 - FC repouso: {last.heart_rate} bpm
 
 EVOLUÇÃO DESDE {first.measured_at.strftime('%d/%m/%Y')}:
