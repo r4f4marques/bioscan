@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BioScan Healthspan</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f5f4f0;color:#1a1a18;font-size:14px}
+
+/* LAYOUT */
+.sidebar{width:210px;background:#fff;border-right:1px solid rgba(0,0,0,0.08);position:fixed;top:0;left:0;height:100vh;display:flex;flex-direction:column;z-index:10}
+.logo{padding:1.1rem 1rem;font-size:15px;font-weight:600;border-bottom:1px solid rgba(0,0,0,0.06);letter-spacing:-0.3px}
+.logo span{font-weight:400;color:#999}
+.nav{flex:1;padding:.5rem 0}
+.nav-section{font-size:10px;color:#bbb;padding:.75rem 1rem .2rem;text-transform:uppercase;letter-spacing:.06em}
+.nav-item{display:flex;align-items:center;gap:8px;padding:7px 1rem;cursor:pointer;font-size:13px;color:#666;transition:all .1s;border-radius:0}
+.nav-item:hover,.nav-item.active{background:#f5f4f0;color:#1a1a18}
+.nav-item.active{font-weight:500}
+.sidebar-footer{padding:.9rem 1rem;border-top:1px solid rgba(0,0,0,0.06);font-size:12px;color:#999}
+.sidebar-footer strong{display:block;font-size:13px;color:#1a1a18;font-weight:500}
+.logout{cursor:pointer;color:#888;text-decoration:underline;font-size:11px}
+
+.main{margin-left:210px;min-height:100vh}
+.topbar{padding:.9rem 1.5rem;border-bottom:1px solid rgba(0,0,0,0.08);background:#fff;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:5}
+.topbar-title{font-size:15px;font-weight:600;letter-spacing:-0.3px}
+.content{padding:1.5rem}
+
+/* CARDS */
+.grid{display:grid;gap:10px;margin-bottom:1.25rem}
+.grid-4{grid-template-columns:repeat(4,1fr)}
+.grid-2{grid-template-columns:1fr 1fr}
+.mcard{background:#f5f4f0;border-radius:10px;padding:.85rem 1rem}
+.mcard-label{font-size:11px;color:#999;margin-bottom:5px}
+.mcard-val{font-size:22px;font-weight:600;line-height:1.1;letter-spacing:-0.5px}
+.mcard-unit{font-size:13px;font-weight:400;color:#999;margin-left:2px}
+.mcard-sub{font-size:11px;color:#bbb;margin-top:3px}
+.badge{display:inline-block;font-size:10px;padding:2px 7px;border-radius:4px;font-weight:500;margin-top:4px}
+.ok{background:#e8f5e0;color:#2d6a1f}
+.warn{background:#fef3e0;color:#7a4f00}
+.alert{background:#fde8e8;color:#9b1c1c}
+
+.card{background:#fff;border:1px solid rgba(0,0,0,0.08);border-radius:12px;padding:1.1rem 1.25rem;margin-bottom:1rem}
+.card-title{font-size:13px;font-weight:600;margin-bottom:1rem;letter-spacing:-0.2px}
+.card-title small{font-size:11px;font-weight:400;color:#bbb;margin-left:6px}
+
+/* PATIENTS TABLE */
+.pt-table{background:#fff;border:1px solid rgba(0,0,0,0.08);border-radius:12px;overflow:hidden}
+.pt-head{display:grid;grid-template-columns:2fr 1fr 1fr 1fr 90px;padding:.6rem 1rem;border-bottom:1px solid rgba(0,0,0,0.06);font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:#bbb}
+.pt-row{display:grid;grid-template-columns:2fr 1fr 1fr 1fr 90px;padding:.8rem 1rem;border-bottom:1px solid rgba(0,0,0,0.05);align-items:center;cursor:pointer;transition:background .1s}
+.pt-row:last-child{border-bottom:none}
+.pt-row:hover{background:#fafaf8}
+.pt-name{font-size:13px;font-weight:500}
+.pt-sub{font-size:11px;color:#bbb}
+.btn{padding:5px 12px;border:1px solid rgba(0,0,0,0.12);border-radius:6px;background:#fff;color:#1a1a18;font-size:12px;cursor:pointer;transition:all .1s}
+.btn:hover{background:#f5f4f0}
+.btn-primary{background:#1a1a18;color:#fff;border-color:#1a1a18}
+.btn-primary:hover{opacity:.85}
+
+/* TABS */
+.tabs{display:flex;gap:0;margin-bottom:1.25rem;border-bottom:1px solid rgba(0,0,0,0.08)}
+.tab{padding:7px 16px;font-size:13px;cursor:pointer;color:#999;border-bottom:2px solid transparent;margin-bottom:-1px;transition:all .1s}
+.tab.active{color:#1a1a18;border-bottom-color:#1a1a18;font-weight:500}
+.tab:hover{color:#1a1a18}
+
+/* UPLOAD */
+.upload-zone{border:1.5px dashed rgba(0,0,0,0.15);border-radius:10px;padding:2rem;text-align:center;cursor:pointer;background:#fafaf8;transition:border-color .15s}
+.upload-zone:hover{border-color:rgba(0,0,0,0.3)}
+
+/* EVOLUTION TABLE */
+.evo-tbl{width:100%;border-collapse:collapse;font-size:12px}
+.evo-tbl th{text-align:left;padding:.4rem .75rem;font-size:10px;color:#bbb;font-weight:400;border-bottom:1px solid rgba(0,0,0,0.06);text-transform:uppercase}
+.evo-tbl td{padding:.55rem .75rem;border-bottom:1px solid rgba(0,0,0,0.05)}
+.evo-tbl tr:last-child td{border-bottom:none}
+
+/* INTERPRET */
+.interpret-box{background:#f5f4f0;border-radius:10px;padding:1rem;font-size:13px;line-height:1.7;white-space:pre-wrap;max-height:400px;overflow-y:auto}
+
+/* AGE */
+.age-row{display:flex;align-items:center;gap:16px;padding:.5rem 0}
+.age-num{font-size:32px;font-weight:600;line-height:1;letter-spacing:-1px}
+.age-lbl{font-size:11px;color:#bbb;margin-top:2px}
+
+/* SEGMENTS */
+.seg-group{margin-bottom:1rem}
+.seg-name{font-size:12px;font-weight:500;margin-bottom:4px;color:#666}
+.bar-bg{height:5px;background:#eee;border-radius:3px;overflow:hidden;margin-bottom:3px}
+.bar-fill{height:100%;border-radius:3px}
+.bar-label{display:flex;justify-content:space-between;font-size:10px;color:#bbb;margin-bottom:2px}
+
+/* LOADING */
+.loading{text-align:center;padding:3rem;color:#bbb;font-size:13px}
+</style>
+</head>
+<body>
+
+<div class="sidebar">
+  <div class="logo">BioScan <span>Healthspan</span></div>
+  <div class="nav">
+    <div class="nav-section">Clínica</div>
+    <div class="nav-item active" id="nav-list" onclick="showScreen('list')">◈ Pacientes</div>
+    <div class="nav-item" id="nav-upload" onclick="showScreen('upload')">↑ Importar CSV</div>
+    <div id="nav-patient-section" style="display:none">
+      <div class="nav-section">Paciente</div>
+      <div class="nav-item" id="nav-overview" onclick="showTab('overview')">○ Visão geral</div>
+      <div class="nav-item" id="nav-evolution" onclick="showTab('evolution')">↗ Evolução</div>
+      <div class="nav-item" id="nav-segments" onclick="showTab('segments')">◫ Segmental</div>
+    </div>
+  </div>
+  <div class="sidebar-footer">
+    <strong id="footer-name">—</strong>
+    <span id="footer-role">Médico</span> · <span class="logout" onclick="logout()">Sair</span>
+  </div>
+</div>
+
+<div class="main">
+  <div class="topbar">
+    <div class="topbar-title" id="topbar-title">Pacientes</div>
+    <div id="topbar-actions"></div>
+  </div>
+  <div class="content" id="content">
+    <div class="loading">Carregando...</div>
+  </div>
+</div>
+
+<script>
+const API = '';
+let token = localStorage.getItem('bioscan_token');
+let user  = JSON.parse(localStorage.getItem('bioscan_user') || '{}');
+let currentPatient = null;
+let currentTab = 'overview';
+let patients = [];
+
+if (!token) window.location.href = '/';
+
+// ── INIT ──────────────────────────────────────────────────────────────────
+document.getElementById('footer-name').textContent = user.name || user.email || '—';
+document.getElementById('footer-role').textContent = user.role === 'doctor' ? 'Médico' : 'Paciente';
+
+async function api(method, path, body, isForm) {
+  const opts = {
+    method,
+    headers: {'Authorization': 'Bearer ' + token},
+  };
+  if (body && !isForm) {
+    opts.headers['Content-Type'] = 'application/json';
+    opts.body = JSON.stringify(body);
+  } else if (isForm) {
+    opts.body = body;
+  }
+  const res = await fetch(API + path, opts);
+  if (res.status === 401) { logout(); return; }
+  return res.json();
+}
+
+function logout() {
+  localStorage.removeItem('bioscan_token');
+  localStorage.removeItem('bioscan_user');
+  window.location.href = '/';
+}
+
+// ── NAVIGATION ────────────────────────────────────────────────────────────
+function setNav(id) {
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  const el = document.getElementById(id);
+  if (el) el.classList.add('active');
+}
+
+function showScreen(screen) {
+  document.getElementById('nav-patient-section').style.display = 'none';
+  document.getElementById('topbar-actions').innerHTML = '';
+  if (screen === 'list') {
+    setNav('nav-list');
+    document.getElementById('topbar-title').textContent = 'Pacientes';
+    loadPatients();
+  } else if (screen === 'upload') {
+    setNav('nav-upload');
+    document.getElementById('topbar-title').textContent = 'Importar CSV';
+    renderUpload();
+  }
+}
+
+function showPatient(p) {
+  currentPatient = p;
+  document.getElementById('nav-patient-section').style.display = 'block';
+  document.getElementById('topbar-title').textContent = p.name;
+  document.getElementById('topbar-actions').innerHTML =
+    '<button class="btn" onclick="showScreen(\'list\')">← Voltar</button>';
+  showTab('overview');
+}
+
+function showTab(tab) {
+  currentTab = tab;
+  ['overview','evolution','segments'].forEach(t => {
+    const el = document.getElementById('nav-' + t);
+    if (el) el.classList.toggle('active', t === tab);
+  });
+  if (tab === 'overview') renderOverview();
+  else if (tab === 'evolution') renderEvolution();
+  else if (tab === 'segments') renderSegments();
+}
+
+// ── HELPERS ───────────────────────────────────────────────────────────────
+function fatStatus(v, sex) {
+  if (sex === 'F') return v < 30 ? 'ok' : v < 35 ? 'warn' : 'alert';
+  return v < 25 ? 'ok' : v < 30 ? 'warn' : 'alert';
+}
+function viscStatus(v) { return v <= 9 ? 'ok' : v <= 14 ? 'warn' : 'alert'; }
+function metaStatus(v, age) { const d = v - age; return d <= 0 ? 'ok' : d <= 5 ? 'warn' : 'alert'; }
+function bmiStatus(v) { return v < 25 ? 'ok' : v < 30 ? 'warn' : 'alert'; }
+function bl(s) { return s === 'ok' ? 'Normal' : s === 'warn' ? 'Atenção' : 'Elevado'; }
+
+// ── PATIENTS LIST ─────────────────────────────────────────────────────────
+async function loadPatients() {
+  document.getElementById('content').innerHTML = '<div class="loading">Carregando pacientes...</div>';
+  patients = await api('GET', '/bioscan/patients');
+  if (!patients) return;
+
+  const rows = patients.map(p => {
+    const l = p.latest || {};
+    const age = p.age || '—';
+    const fs = l.fat_pct !== undefined ? fatStatus(l.fat_pct, p.sex) : 'ok';
+    const vs = l.visceral !== undefined ? viscStatus(l.visceral) : 'ok';
+    const ms = (l.meta_age && p.age) ? metaStatus(l.meta_age, p.age) : 'ok';
+    return `<div class="pt-row" onclick="selectPatient(${p.id})">
+      <div><div class="pt-name">${p.name}</div><div class="pt-sub">${age}a · ${p.sex === 'M' ? 'Masc' : p.sex === 'F' ? 'Fem' : '—'}</div></div>
+      <div>${l.bmi ? `<span class="badge ${bmiStatus(l.bmi)}">${l.bmi.toFixed(1)}</span>` : '—'}</div>
+      <div>${l.fat_pct !== undefined ? `<span class="badge ${fs}">${l.fat_pct.toFixed(1)}%</span>` : '—'}</div>
+      <div>${l.visceral !== undefined ? `<span class="badge ${vs}">${l.visceral}</span>` : '—'}</div>
+      <div><button class="btn">Ver →</button></div>
+    </div>`;
+  }).join('');
+
+  document.getElementById('content').innerHTML = `
+    <div class="pt-table">
+      <div class="pt-head"><div>Paciente</div><div>IMC</div><div>Gordura</div><div>Visceral</div><div></div></div>
+      ${rows || '<div style="padding:2rem;text-align:center;color:#bbb">Nenhum paciente cadastrado</div>'}
+    </div>`;
+}
+
+async function selectPatient(id) {
+  const data = await api('GET', `/bioscan/patients/${id}`);
+  if (data) showPatient(data);
+}
+
+// ── OVERVIEW ──────────────────────────────────────────────────────────────
+function renderOverview() {
+  const p = currentPatient;
+  const m = p.measurements && p.measurements.length > 0
+    ? p.measurements[p.measurements.length - 1] : null;
+
+  if (!m) {
+    document.getElementById('content').innerHTML = `
+      <div class="card" style="text-align:center;padding:2rem;color:#bbb">
+        Nenhuma medição encontrada.<br><br>
+        <button class="btn btn-primary" onclick="showScreen('upload')">↑ Importar CSV Tanita</button>
+      </div>`;
+    return;
+  }
+
+  const age = p.age || '—';
+  const metaDiff = m.meta_age && p.age ? m.meta_age - p.age : null;
+  const metaColor = metaDiff === null ? '#bbb' : metaDiff < 0 ? '#2d6a1f' : metaDiff <= 5 ? '#1a6fa8' : '#9b1c1c';
+
+  document.getElementById('content').innerHTML = `
+    <div class="grid grid-4">
+      <div class="mcard"><div class="mcard-label">Peso</div><div class="mcard-val">${m.weight?.toFixed(1)}<span class="mcard-unit">kg</span></div><div class="mcard-sub">IMC ${m.bmi?.toFixed(1)} · <span class="badge ${bmiStatus(m.bmi)}">${bl(bmiStatus(m.bmi))}</span></div></div>
+      <div class="mcard"><div class="mcard-label">Gordura corporal</div><div class="mcard-val">${m.fat_pct?.toFixed(1)}<span class="mcard-unit">%</span></div><span class="badge ${fatStatus(m.fat_pct, p.sex)}">${bl(fatStatus(m.fat_pct, p.sex))}</span></div>
+      <div class="mcard"><div class="mcard-label">Massa muscular</div><div class="mcard-val">${m.muscle_kg?.toFixed(1)}<span class="mcard-unit">kg</span></div><div class="mcard-sub">Qualidade: ${m.muscle_quality || '—'}</div></div>
+      <div class="mcard"><div class="mcard-label">Visceral</div><div class="mcard-val">${m.visceral}</div><span class="badge ${viscStatus(m.visceral)}">${bl(viscStatus(m.visceral))}</span></div>
+    </div>
+    <div class="grid grid-4">
+      <div class="mcard"><div class="mcard-label">Água corporal</div><div class="mcard-val">${m.water_pct?.toFixed(1)}<span class="mcard-unit">%</span></div></div>
+      <div class="mcard"><div class="mcard-label">Massa óssea</div><div class="mcard-val">${m.bone_kg?.toFixed(2)}<span class="mcard-unit">kg</span></div></div>
+      <div class="mcard"><div class="mcard-label">Metabolismo basal</div><div class="mcard-val">${m.bmr?.toFixed(0)}<span class="mcard-unit">kcal</span></div></div>
+      <div class="mcard"><div class="mcard-label">FC repouso</div><div class="mcard-val">${m.heart_rate || '—'}${m.heart_rate ? '<span class="mcard-unit">bpm</span>' : ''}</div></div>
+    </div>
+    <div class="grid grid-2">
+      <div class="card">
+        <div class="card-title">Idade metabólica vs. real</div>
+        <div class="age-row">
+          <div><div class="age-num" style="color:#bbb">${age}</div><div class="age-lbl">Idade real</div></div>
+          <div style="font-size:20px;color:#ddd">→</div>
+          <div><div class="age-num" style="color:${metaColor}">${m.meta_age || '—'}</div><div class="age-lbl">Metabólica</div></div>
+          ${metaDiff !== null ? `<div><div style="font-size:16px;font-weight:600;color:${metaColor}">${metaDiff > 0 ? '+' : ''}${metaDiff}</div><div class="age-lbl">anos</div></div>` : ''}
+        </div>
+        <div style="margin-top:1rem">
+          ${(p.risk_flags || []).map(f => `<div class="badge ${f.level}" style="display:block;margin-bottom:4px;padding:4px 8px">${f.message}</div>`).join('')}
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">Interpretação IA <small>Groq llama-3.3-70b</small></div>
+        <div id="interpret-box" class="interpret-box" style="color:#bbb;font-style:italic">Clique em "Gerar interpretação" para analisar.</div>
+        <button class="btn btn-primary" style="margin-top:.75rem;width:100%" onclick="getInterpretation()">Gerar interpretação</button>
+      </div>
+    </div>`;
+}
+
+async function getInterpretation() {
+  const box = document.getElementById('interpret-box');
+  box.textContent = 'Analisando dados...';
+  box.style.color = '#bbb';
+  box.style.fontStyle = 'italic';
+  const data = await api('POST', `/bioscan/patients/${currentPatient.id}/interpret`);
+  if (data && data.interpretation) {
+    box.textContent = data.interpretation;
+    box.style.color = '#1a1a18';
+    box.style.fontStyle = 'normal';
+  } else {
+    box.textContent = data?.error || 'Erro ao gerar interpretação.';
+  }
+}
+
+// ── EVOLUTION ─────────────────────────────────────────────────────────────
+function renderEvolution() {
+  const p = currentPatient;
+  const ms = p.measurements || [];
+
+  if (!ms.length) {
+    document.getElementById('content').innerHTML = '<div class="loading">Nenhuma medição encontrada.</div>';
+    return;
+  }
+
+  const rows = [...ms].reverse().map(m => `<tr>
+    <td>${m.measured_at?.substring(0,10)}</td>
+    <td>${m.weight?.toFixed(1)} kg</td>
+    <td><span class="badge ${fatStatus(m.fat_pct, p.sex)}">${m.fat_pct?.toFixed(1)}%</span></td>
+    <td>${m.muscle_kg?.toFixed(2)} kg</td>
+    <td><span class="badge ${viscStatus(m.visceral)}">${m.visceral}</span></td>
+    <td>${m.meta_age ? m.meta_age + ' anos' : '—'}</td>
+    <td>${m.bmr?.toFixed(0)} kcal</td>
+  </tr>`).join('');
+
+  document.getElementById('content').innerHTML = `
+    <div class="card">
+      <div class="card-title">Histórico de medições <small>${ms.length} registro(s)</small></div>
+      <table class="evo-tbl">
+        <thead><tr><th>Data</th><th>Peso</th><th>Gordura</th><th>Músculo</th><th>Visceral</th><th>Id. met.</th><th>BMR</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+}
+
+// ── SEGMENTS ──────────────────────────────────────────────────────────────
+function renderSegments() {
+  const p = currentPatient;
+  const ms = p.measurements || [];
+  if (!ms.length) {
+    document.getElementById('content').innerHTML = '<div class="loading">Nenhuma medição encontrada.</div>';
+    return;
+  }
+  const m = ms[ms.length - 1];
+  const sf = m.seg_fat || {};
+  const sm = m.seg_musc || {};
+  const sq = m.seg_qual || {};
+
+  const segs = [
+    {name:'Braço direito', fat:sf.right_arm, musc:sm.right_arm, qual:sq.right_arm},
+    {name:'Braço esquerdo', fat:sf.left_arm, musc:sm.left_arm, qual:sq.left_arm},
+    {name:'Perna direita', fat:sf.right_leg, musc:sm.right_leg, qual:sq.right_leg},
+    {name:'Perna esquerda', fat:sf.left_leg, musc:sm.left_leg, qual:sq.left_leg},
+    {name:'Tronco', fat:sf.trunk, musc:sm.trunk, qual:sq.trunk},
+  ];
+
+  const maxMusc = Math.max(...segs.map(s => s.musc || 0));
+
+  const segHtml = segs.map(s => `
+    <div class="seg-group">
+      <div class="seg-name">${s.name}</div>
+      <div class="bar-label"><span>Gordura</span><span>${s.fat != null ? s.fat.toFixed(1) + '%' : '—'}</span></div>
+      <div class="bar-bg"><div class="bar-fill" style="width:${s.fat != null ? Math.min(100,s.fat/50*100).toFixed(0) : 0}%;background:#e74c3c"></div></div>
+      <div class="bar-label"><span>Músculo</span><span>${s.musc != null ? s.musc.toFixed(2) + ' kg' : '—'}</span></div>
+      <div class="bar-bg"><div class="bar-fill" style="width:${s.musc != null && maxMusc > 0 ? Math.min(100,s.musc/maxMusc*100).toFixed(0) : 0}%;background:#2980b9"></div></div>
+      ${s.qual != null ? `<div style="font-size:10px;color:#bbb">Qualidade: <span class="badge ok">${s.qual}</span></div>` : '<div style="font-size:10px;color:#ddd">Qualidade não disponível</div>'}
+    </div>`).join('');
+
+  document.getElementById('content').innerHTML = `
+    <div class="card">
+      <div class="card-title">Análise segmental <small>medição ${m.measured_at?.substring(0,10)}</small></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.5rem">${segHtml}</div>
+    </div>`;
+}
+
+// ── UPLOAD ────────────────────────────────────────────────────────────────
+function renderUpload() {
+  document.getElementById('content').innerHTML = `
+    <div style="max-width:500px">
+      <div class="card">
+        <div class="card-title">Importar CSV Tanita</div>
+        <div style="margin-bottom:1rem">
+          <label style="font-size:12px;color:#666;display:block;margin-bottom:4px">Paciente (ID)</label>
+          <input type="number" id="upload-pid" placeholder="ID do paciente (ex: 1)" style="width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px">
+        </div>
+        <div class="upload-zone" onclick="document.getElementById('csvfile').click()">
+          <div style="font-size:22px;margin-bottom:.5rem">↑</div>
+          <div style="font-size:13px;color:#999">Clique para selecionar o CSV exportado pela balança Tanita</div>
+          <div style="font-size:11px;color:#ccc;margin-top:4px">BC-780, BC-545N, MC-780MA e compatíveis</div>
+        </div>
+        <input type="file" id="csvfile" accept=".csv" style="display:none" onchange="uploadCSV(this)">
+        <div id="upload-result" style="margin-top:.75rem"></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Pacientes cadastrados</div>
+        <div id="upload-patients">Carregando...</div>
+      </div>
+    </div>`;
+  loadUploadPatients();
+}
+
+async function loadUploadPatients() {
+  const ps = await api('GET', '/bioscan/patients');
+  if (!ps) return;
+  const html = ps.length
+    ? ps.map(p => `<div style="padding:.4rem 0;font-size:13px;border-bottom:1px solid #f0f0f0"><strong>ID ${p.id}</strong> — ${p.name}</div>`).join('')
+    : '<div style="color:#bbb;font-size:13px">Nenhum paciente cadastrado ainda.</div>';
+  document.getElementById('upload-patients').innerHTML = html;
+}
+
+async function uploadCSV(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const pid = document.getElementById('upload-pid').value;
+  if (!pid) {
+    document.getElementById('upload-result').innerHTML = '<div style="color:#c0392b;font-size:12px">Informe o ID do paciente.</div>';
+    return;
+  }
+
+  const result = document.getElementById('upload-result');
+  result.innerHTML = '<div style="color:#999;font-size:12px">Importando...</div>';
+
+  const form = new FormData();
+  form.append('csv', file);
+
+  const data = await api('POST', `/bioscan/patients/${pid}/import-csv`, form, true);
+  if (!data) return;
+
+  if (data.error) {
+    result.innerHTML = `<div style="color:#c0392b;font-size:12px;padding:.5rem;background:#fde8e8;border-radius:6px">${data.error}</div>`;
+  } else {
+    result.innerHTML = `<div style="color:#2d6a1f;font-size:12px;padding:.5rem;background:#e8f5e0;border-radius:6px">
+      ✓ ${data.inserted} medição(ões) importada(s) · ${data.skipped} ignorada(s) (duplicata)
+    </div>`;
+  }
+}
+
+// ── START ─────────────────────────────────────────────────────────────────
+showScreen('list');
+</script>
+</body>
+</html>
