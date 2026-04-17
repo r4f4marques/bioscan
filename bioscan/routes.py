@@ -3,14 +3,16 @@ BioScan Healthspan — API Routes
 """
 
 import os
+import re
 from datetime import datetime, timezone, timedelta
 from functools import wraps
 
-from flask import Blueprint, request, jsonify, g
+from flask import Blueprint, request, jsonify, g, send_file
 import jwt
 
 from .models import db, User, Patient, Measurement
 from .tanita_parser import parse_tanita_file, parse_tanita_csv
+from .pdf_report import generate_pdf
 
 bioscan_bp = Blueprint("bioscan", __name__)
 
@@ -20,6 +22,45 @@ JWT_EXPIRES = timedelta(hours=12)
 def _jwt_secret():
     return os.environ.get("JWT_SECRET", "dev-only-change-in-prod")
 
+
+# ── VALIDADORES BRASIL ────────────────────────────────────────────────────
+
+def validate_cpf(cpf: str) -> bool:
+    """Valida CPF brasileiro. Aceita com ou sem formatação."""
+    if not cpf:
+        return False
+    cpf = re.sub(r"\D", "", cpf)
+    if len(cpf) != 11 or cpf == cpf[0] * 11:
+        return False
+    for i in range(9, 11):
+        value = sum(int(cpf[num]) * (i + 1 - num) for num in range(i))
+        digit = (value * 10) % 11
+        if digit == 10:
+            digit = 0
+        if digit != int(cpf[i]):
+            return False
+    return True
+
+
+def format_cpf(cpf: str) -> str:
+    """Formata CPF: 12345678900 → 123.456.789-00"""
+    cpf = re.sub(r"\D", "", cpf or "")
+    if len(cpf) != 11:
+        return cpf
+    return f"{cpf[:3]}.{cpf[3:6]}.{cpf[6:9]}-{cpf[9:]}"
+
+
+def format_phone(phone: str) -> str:
+    """Formata celular: 11912345678 → (11) 91234-5678"""
+    p = re.sub(r"\D", "", phone or "")
+    if len(p) == 11:
+        return f"({p[:2]}) {p[2:7]}-{p[7:]}"
+    if len(p) == 10:
+        return f"({p[:2]}) {p[2:6]}-{p[6:]}"
+    return phone
+
+
+# ── HEALTH / DEBUG ────────────────────────────────────────────────────────
 
 @bioscan_bp.get("/health")
 def health():
@@ -74,11 +115,6 @@ def require_role(*roles):
 
 @bioscan_bp.post("/auth/login")
 def login():
-    """
-    Login unificado:
-    - Médico: { email, password }
-    - Paciente: { email, birth_date }  (formato YYYY-MM-DD ou DD/MM/YYYY)
-    """
     data = request.get_json(silent=True) or {}
     email = data.get("email", "").lower().strip()
     user = User.query.filter_by(email=email).first()
@@ -86,13 +122,10 @@ def login():
     if not user or not user.is_active:
         return jsonify({"error": "Credenciais inválidas"}), 401
 
-    # Paciente: autentica com data de nascimento
     if user.role == "patient":
         birth_date = data.get("birth_date", "")
         if not user.check_birth_date(birth_date):
             return jsonify({"error": "Credenciais inválidas"}), 401
-
-    # Médico/admin: autentica com senha
     else:
         password = data.get("password", "")
         if not user.check_password(password):
@@ -106,14 +139,6 @@ def login():
 
 @bioscan_bp.post("/auth/create-doctor")
 def create_doctor():
-    """
-    Cria um médico. Protegido por ADMIN_KEY no header X-Admin-Key.
-    Uso via Terminal:
-        curl -X POST .../bioscan/auth/create-doctor \
-          -H "X-Admin-Key: SUA_ADMIN_KEY" \
-          -H "Content-Type: application/json" \
-          -d '{"name":"Dr. Rafael","email":"rafael@clinica.com","password":"senha123"}'
-    """
     admin_key = request.headers.get("X-Admin-Key", "")
     expected  = os.environ.get("ADMIN_KEY", "")
     if not expected or admin_key != expected:
@@ -126,11 +151,7 @@ def create_doctor():
     if User.query.filter_by(email=data["email"].lower()).first():
         return jsonify({"error": "E-mail já cadastrado"}), 409
 
-    user = User(
-        email=data["email"].lower(),
-        role="doctor",
-        name=data.get("name", ""),
-    )
+    user = User(email=data["email"].lower(), role="doctor", name=data.get("name", ""))
     user.set_password(data["password"])
     db.session.add(user)
     db.session.commit()
@@ -150,26 +171,38 @@ def list_patients():
 @require_role("doctor")
 def create_patient():
     """
-    Cria paciente e cria automaticamente uma conta de usuário vinculada.
-    Body: { name, email, birth_date (YYYY-MM-DD), sex, height_cm, tags, notes }
-    O paciente faz login com email + birth_date.
+    Cria paciente + conta de usuário.
+    Body obrigatórios: name, email, birth_date, cpf
+    Opcionais: sex, height_cm, phone, tags, notes
     """
     data = request.get_json(silent=True) or {}
+
     if not data.get("name"):
         return jsonify({"error": "Nome obrigatório"}), 400
     if not data.get("email"):
         return jsonify({"error": "E-mail obrigatório"}), 400
     if not data.get("birth_date"):
         return jsonify({"error": "Data de nascimento obrigatória"}), 400
+    if not data.get("cpf"):
+        return jsonify({"error": "CPF obrigatório"}), 400
 
-    # Verifica se e-mail já existe
+    # Valida CPF
+    if not validate_cpf(data["cpf"]):
+        return jsonify({"error": "CPF inválido"}), 400
+    cpf_formatted = format_cpf(data["cpf"])
+
+    # Verifica duplicatas
     if User.query.filter_by(email=data["email"].lower()).first():
         return jsonify({"error": "E-mail já cadastrado"}), 409
+    if Patient.query.filter_by(cpf=cpf_formatted).first():
+        return jsonify({"error": "CPF já cadastrado"}), 409
 
-    # Cria o registro do paciente
     birth = datetime.strptime(data["birth_date"], "%Y-%m-%d").date()
+
     p = Patient(
         name       = data["name"],
+        cpf        = cpf_formatted,
+        phone      = format_phone(data.get("phone")) if data.get("phone") else None,
         birth_date = birth,
         sex        = data.get("sex"),
         height_cm  = data.get("height_cm"),
@@ -180,7 +213,6 @@ def create_patient():
     db.session.add(p)
     db.session.flush()
 
-    # Cria conta de usuário vinculada ao paciente
     user = User(
         email      = data["email"].lower(),
         role       = "patient",
@@ -226,6 +258,12 @@ def update_patient(pid):
         p.tags = ",".join(data["tags"])
     if "birth_date" in data:
         p.birth_date = datetime.strptime(data["birth_date"], "%Y-%m-%d").date()
+    if "phone" in data:
+        p.phone = format_phone(data["phone"]) if data["phone"] else None
+    if "cpf" in data:
+        if not validate_cpf(data["cpf"]):
+            return jsonify({"error": "CPF inválido"}), 400
+        p.cpf = format_cpf(data["cpf"])
 
     db.session.commit()
     return jsonify(p.to_dict())
@@ -316,35 +354,6 @@ def import_csv(pid):
     return jsonify({
         "inserted": len(inserted),
         "skipped":  skipped,
-        "measurements": [m.to_dict() for m in inserted],
-    }), 201
-
-
-@bioscan_bp.post("/import-csv-raw")
-@require_role("doctor")
-def import_csv_raw():
-    pid = request.form.get("patient_id")
-    if "csv" not in request.files:
-        return jsonify({"error": "Campo 'csv' não encontrado"}), 400
-
-    try:
-        rows = parse_tanita_csv(request.files["csv"].read())
-    except ValueError as e:
-        return jsonify({"error": str(e)}), 422
-
-    if not pid:
-        p = Patient(name="Paciente importado", created_by=g.user.id)
-        db.session.add(p)
-        db.session.flush()
-        pid = p.id
-    else:
-        db.get_or_404(Patient, int(pid))
-
-    inserted = _bulk_insert(int(pid), rows)
-    db.session.commit()
-    return jsonify({
-        "patient_id": int(pid),
-        "inserted":   len(inserted),
         "measurements": [m.to_dict() for m in inserted],
     }), 201
 
@@ -454,6 +463,44 @@ Interprete com foco em healthspan: qualidade de vida a longo prazo, risco metab�
     })
 
 
+# ── PDF REPORT ───────────────────────────────────────────────────────────
+
+@bioscan_bp.get("/patients/<int:pid>/report")
+@require_role("doctor")
+def patient_report_pdf(pid):
+    """
+    Gera relatório PDF completo do paciente e retorna para download.
+    Inclui última medição, alertas clínicos, gráficos segmentais,
+    evolução temporal e histórico completo.
+    """
+    import io
+    p = db.get_or_404(Patient, pid)
+    measurements = p.measurements
+
+    if not measurements:
+        return jsonify({"error": "Paciente sem medições"}), 404
+
+    # Gera flags clínicos da última medição
+    flags = _risk_flags(measurements[-1], p)
+
+    try:
+        pdf_bytes = generate_pdf(p, measurements, flags)
+    except Exception as e:
+        return jsonify({"error": f"Erro ao gerar PDF: {str(e)}"}), 500
+
+    # Nome de arquivo sanitizado com data
+    safe_name = re.sub(r"[^\w\s-]", "", p.name).strip().replace(" ", "_")
+    date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    filename = f"BioScan_{safe_name}_{date_str}.pdf"
+
+    return send_file(
+        io.BytesIO(pdf_bytes),
+        mimetype="application/pdf",
+        as_attachment=True,
+        download_name=filename,
+    )
+
+
 # ── HELPERS ───────────────────────────────────────────────────────────────
 
 MEASUREMENT_FIELDS = [
@@ -472,22 +519,6 @@ def _fill_measurement(m: Measurement, data: dict):
     for f in MEASUREMENT_FIELDS:
         if f in data and data[f] is not None:
             setattr(m, f, data[f])
-
-
-def _bulk_insert(pid: int, rows: list[dict]) -> list[Measurement]:
-    inserted = []
-    for row in rows:
-        measured_at = row.pop("measured_at")
-        exists = Measurement.query.filter_by(
-            patient_id=pid, measured_at=measured_at).first()
-        if exists:
-            continue
-        m = Measurement(patient_id=pid, source="tanita_csv",
-                        measured_at=measured_at)
-        _fill_measurement(m, row)
-        db.session.add(m)
-        inserted.append(m)
-    return inserted
 
 
 def _risk_flags(m: Measurement, p: Patient) -> list[dict]:
