@@ -72,6 +72,17 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .chart-container{position:relative;height:200px;margin-top:.5rem}
 .body-diagram{display:flex;justify-content:center;padding:1rem}
 .body-diagram svg{max-width:220px;max-height:500px;width:100%;height:auto}
+.sil-container{display:grid;grid-template-columns:1fr 1fr;gap:1rem;padding:.5rem 0}
+.sil-col{display:flex;flex-direction:column;align-items:center}
+.sil-title{font-size:12px;font-weight:500;margin-bottom:.5rem;color:#1a1a18}
+.sil-body{position:relative;width:100%;max-width:220px;aspect-ratio:240/420;margin:0 auto}
+.sil-bg{position:absolute;top:0;left:0;width:100%;height:100%;opacity:0.35;filter:grayscale(1);pointer-events:none}
+.sil-seg{position:absolute;border-radius:6px;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:3px;font-size:9px;line-height:1.25;text-align:center;opacity:0.82}
+.sil-seg-name{font-weight:500;margin-bottom:1px}
+.sil-seg-val{font-size:12px;font-weight:600}
+.sil-legend{display:flex;gap:.75rem;justify-content:center;font-size:10px;color:#888;margin-top:.5rem;flex-wrap:wrap}
+.sil-legend-item{display:flex;align-items:center;gap:4px}
+.sil-dot{width:10px;height:10px;border-radius:2px;opacity:.82}
 .body-legend{display:flex;gap:1rem;justify-content:center;font-size:11px;color:#888;margin-top:.75rem;flex-wrap:wrap}
 .body-legend-item{display:flex;align-items:center;gap:4px}
 .body-legend-dot{width:10px;height:10px;border-radius:2px}
@@ -512,7 +523,7 @@ function renderCharts(ms) {
   mkChart('ch-bmr',    ms.map(m => m.bmr),       '#16a085');
 }
 
-// ── SEGMENTS — Corpo humano ──────────────────────────────────────────────
+// ── SEGMENTS — Layout Tanita dual (massa magra + gordura) ────────────────
 function renderSegments() {
   const ms = currentPatient.measurements || [];
   if (!ms.length) {
@@ -522,97 +533,119 @@ function renderSegments() {
   const m = ms[ms.length - 1];
 
   document.getElementById('content').innerHTML = `
-    <div class="grid grid-2">
-      <div class="card">
-        <div class="card-title">Distribuição corporal <small>medição ${m.measured_at?.substring(0,10)}</small></div>
-        <div class="body-toggle">
-          <button class="body-toggle-btn active" id="tog-fat"   onclick="showBodyMode('fat')">Gordura %</button>
-          <button class="body-toggle-btn"        id="tog-musc"  onclick="showBodyMode('musc')">Músculo kg</button>
-        </div>
-        <div id="body-svg" class="body-diagram"></div>
-        <div class="body-legend" id="body-legend"></div>
-      </div>
-      <div class="card">
-        <div class="card-title">Valores por segmento</div>
-        <div id="seg-detail"></div>
-      </div>
+    <div class="card">
+      <div class="card-title">Análise segmental <small>medição ${m.measured_at?.substring(0,10)}</small></div>
+      <div id="body-svg"></div>
+    </div>
+    <div class="card">
+      <div class="card-title">Valores por segmento</div>
+      <div id="seg-detail"></div>
     </div>`;
 
-  window._bodyData = m;
-  showBodyMode('fat');
+  renderBodyDual(m);
   renderSegDetail(m);
 }
 
-function showBodyMode(mode) {
-  const m = window._bodyData;
-  document.getElementById('tog-fat').classList.toggle('active', mode === 'fat');
-  document.getElementById('tog-musc').classList.toggle('active', mode === 'musc');
+// Path da silhueta anatômica (svgrepo)
+const SILHOUETTE_PATH = "M104.265,117.959c-0.304,3.58,2.126,22.529,3.38,29.959c0.597,3.52,2.234,9.255,1.645,12.3c-0.841,4.244-1.084,9.736-0.621,12.934c0.292,1.942,1.211,10.899-0.104,14.175c-0.688,1.718-1.949,10.522-1.949,10.522c-3.285,8.294-1.431,7.886-1.431,7.886c1.017,1.248,2.759,0.098,2.759,0.098c1.327,0.846,2.246-0.201,2.246-0.201c1.139,0.943,2.467-0.116,2.467-0.116c1.431,0.743,2.758-0.627,2.758-0.627c0.822,0.414,1.023-0.109,1.023-0.109c2.466-0.158-1.376-8.05-1.376-8.05c-0.92-7.088,0.913-11.033,0.913-11.033c6.004-17.805,6.309-22.53,3.909-29.24c-0.676-1.937-0.847-2.704-0.536-3.545c0.719-1.941,0.195-9.748,1.072-12.848c1.692-5.979,3.361-21.142,4.231-28.217c1.169-9.53-4.141-22.308-4.141-22.308c-1.163-5.2,0.542-23.727,0.542-23.727c2.381,3.705,2.29,10.245,2.29,10.245c-0.378,6.859,5.541,17.342,5.541,17.342c2.844,4.332,3.921,8.442,3.921,8.747c0,1.248-0.273,4.269-0.273,4.269l0.109,2.631c0.049,0.67,0.426,2.977,0.365,4.092c-0.444,6.862,0.646,5.571,0.646,5.571c0.92,0,1.931-5.522,1.931-5.522c0,1.424-0.348,5.687,0.42,7.295c0.919,1.918,1.595-0.329,1.607-0.78c0.243-8.737,0.768-6.448,0.768-6.448c0.511,7.088,1.139,8.689,2.265,8.135c0.853-0.407,0.073-8.506,0.073-8.506c1.461,4.811,2.569,5.577,2.569,5.577c2.411,1.693,0.92-2.983,0.585-3.909c-1.784-4.92-1.839-6.625-1.839-6.625c2.229,4.421,3.909,4.257,3.909,4.257c2.174-0.694-1.9-6.954-4.287-9.953c-1.218-1.528-2.789-3.574-3.245-4.789c-0.743-2.058-1.304-8.674-1.304-8.674c-0.225-7.807-2.155-11.198-2.155-11.198c-3.3-5.282-3.921-15.135-3.921-15.135l-0.146-16.635c-1.157-11.347-9.518-11.429-9.518-11.429c-8.451-1.258-9.627-3.988-9.627-3.988c-1.79-2.576-0.767-7.514-0.767-7.514c1.485-1.208,2.058-4.415,2.058-4.415c2.466-1.891,2.345-4.658,1.206-4.628c-0.914,0.024-0.707-0.733-0.707-0.733C115.068,0.636,104.01,0,104.01,0h-1.688c0,0-11.063,0.636-9.523,13.089c0,0,0.207,0.758-0.715,0.733c-1.136-0.03-1.242,2.737,1.215,4.628c0,0,0.572,3.206,2.058,4.415c0,0,1.023,4.938-0.767,7.514c0,0-1.172,2.73-9.627,3.988c0,0-8.375,0.082-9.514,11.429l-0.158,16.635c0,0-0.609,9.853-3.922,15.135c0,0-1.921,3.392-2.143,11.198c0,0-0.563,6.616-1.303,8.674c-0.451,1.209-2.021,3.255-3.249,4.789c-2.408,2.993-6.455,9.24-4.29,9.953c0,0,1.689,0.164,3.909-4.257c0,0-0.046,1.693-1.827,6.625c-0.35,0.914-1.839,5.59,0.573,3.909c0,0,1.117-0.767,2.569-5.577c0,0-0.779,8.099,0.088,8.506c1.133,0.555,1.751-1.047,2.262-8.135c0,0,0.524-2.289,0.767,6.448c0.012,0.451,0.673,2.698,1.596,0.78c0.779-1.608,0.429-5.864,0.429-7.295c0,0,0.999,5.522,1.933,5.522c0,0,1.099,1.291,0.648-5.571c-0.073-1.121,0.32-3.422,0.369-4.092l0.106-2.631c0,0-0.274-3.014-0.274-4.269c0-0.311,1.078-4.415,3.921-8.747c0,0,5.913-10.488,5.532-17.342c0,0-0.082-6.54,2.299-10.245c0,0,1.69,18.526,0.545,23.727c0,0-5.319,12.778-4.146,22.308c0.864,7.094,2.53,22.237,4.226,28.217c0.886,3.094,0.362,10.899,1.072,12.848c0.32,0.847,0.152,1.627-0.536,3.545c-2.387,6.71-2.083,11.436,3.921,29.24c0,0,1.848,3.945,0.914,11.033c0,0-3.836,7.892-1.379,8.05c0,0,0.192,0.523,1.023,0.109c0,0,1.327,1.37,2.761,0.627c0,0,1.328,1.06,2.463,0.116c0,0,0.91,1.047,2.237,0.201c0,0,1.742,1.175,2.777-0.098c0,0,1.839,0.408-1.435-7.886c0,0-1.254-8.793-1.945-10.522c-1.318-3.275-0.387-12.251-0.106-14.175c0.453-3.216,0.21-8.695-0.618-12.934c-0.606-3.038,1.035-8.774,1.641-12.3c1.245-7.423,3.685-26.373,3.38-29.959l1.008,0.354C103.809,118.312,104.265,117.959,104.265,117.959z";
 
-  const data = mode === 'fat' ? m.seg_fat : m.seg_musc;
-  const unit = mode === 'fat' ? '%' : 'kg';
-
-  // Normalizar para escala de cor (0-100%)
-  const values = Object.values(data).filter(v => v != null);
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const range = max - min || 1;
-
-  const colorFor = (v) => {
+function renderBodyDual(m) {
+  // Paleta músculo: verde claro (menor) → verde escuro (maior)
+  const muscColor = (v, min, max) => {
     if (v == null) return '#eee';
-    const t = (v - min) / range;
-    if (mode === 'fat') {
-      // Gordura: verde (baixo) → amarelo → vermelho (alto)
-      if (t < 0.5) {
-        const k = t * 2;
-        return `rgb(${Math.round(45 + k*200)}, ${Math.round(106 + k*50)}, ${Math.round(31 + k*0)})`;
-      } else {
-        const k = (t - 0.5) * 2;
-        return `rgb(${Math.round(245 - k*50)}, ${Math.round(156 - k*120)}, ${Math.round(31 - k*0)})`;
-      }
-    } else {
-      // Músculo: azul claro (baixo) → azul escuro (alto) — mais é melhor
-      const k = t;
-      return `rgb(${Math.round(180 - k*140)}, ${Math.round(210 - k*140)}, ${Math.round(235 - k*50)})`;
-    }
+    const t = max === min ? 0.5 : (v - min) / (max - min);
+    const r = Math.round(192 - t * 89);
+    const g = Math.round(221 - t * 68);
+    const b = Math.round(151 - t * 117);
+    return `rgb(${r},${g},${b})`;
   };
 
-  const fmt = v => v == null ? '—' : v.toFixed(mode === 'fat' ? 1 : 2);
+  // Paleta gordura: verde (normal) → laranja (atenção) → vermelho (elevado)
+  const fatColor = (v) => {
+    if (v == null) return '#eee';
+    if (v < 25) return '#97c459';
+    if (v < 32) return '#ef9f27';
+    return '#e24b4a';
+  };
 
-  // SVG do corpo humano — silhueta anatômica com curvas Bézier
-  const svg = `
-    <svg viewBox="0 0 200 530" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet">
-      <path d="M 100 20 C 90 20, 82 28, 79 40 C 77 48, 77 56, 79 63 C 76 65, 76 68, 78 71 C 80 72, 82 72, 83 71 C 85 76, 87 80, 89 82 L 89 92 L 111 92 L 111 82 C 113 80, 115 76, 117 71 C 118 72, 120 72, 122 71 C 124 68, 124 65, 121 63 C 123 56, 123 48, 121 40 C 118 28, 110 20, 100 20 Z"
-        fill="#d5d4ce" stroke="#999" stroke-width="0.8"/>
+  // Cor do texto adaptável
+  const muscTextColor = (v, min, max) => {
+    if (v == null) return '#666';
+    const t = max === min ? 0.5 : (v - min) / (max - min);
+    return t > 0.45 ? '#fff' : '#27500a';
+  };
+  const fatTextColor = (v) => {
+    if (v == null) return '#666';
+    if (v < 25) return '#2d5014';
+    if (v < 32) return '#412402';
+    return '#fff';
+  };
 
-      <path d="M 89 92 L 89 98 Q 86 104, 80 108 L 80 112 Q 90 115, 100 115 Q 110 115, 120 112 L 120 108 Q 114 104, 111 98 L 111 92 Z"
-        fill="#d5d4ce" stroke="#999" stroke-width="0.8"/>
+  const mFat  = m.seg_fat;
+  const mMus  = m.seg_musc;
+  const musVals = Object.values(mMus).filter(v => v != null);
+  const mMin = musVals.length ? Math.min(...musVals) : 0;
+  const mMax = musVals.length ? Math.max(...musVals) : 1;
 
-      <path d="M 80 112 C 70 114, 60 118, 52 124 C 48 128, 46 132, 45 138 L 45 146 C 48 152, 54 156, 62 158 C 64 162, 65 170, 66 180 C 67 194, 68 208, 68 220 C 68 232, 67 242, 66 252 C 65 262, 64 272, 63 280 C 62 288, 62 294, 64 300 C 66 306, 69 310, 73 312 L 127 312 C 131 310, 134 306, 136 300 C 138 294, 138 288, 137 280 C 136 272, 135 262, 134 252 C 133 242, 132 232, 132 220 C 132 208, 133 194, 134 180 C 135 170, 136 162, 138 158 C 146 156, 152 152, 155 146 L 155 138 C 154 132, 152 128, 148 124 C 140 118, 130 114, 120 112 Z"
-        fill="${colorFor(data.trunk)}" stroke="#555" stroke-width="0.8" stroke-linejoin="round"/>
+  const f = v => v == null ? '—' : v.toFixed(2);
+  const fp = v => v == null ? '—' : v.toFixed(1);
 
-      <path d="M 52 124 C 44 128, 38 134, 34 142 C 32 150, 31 158, 30 166 C 29 176, 28 186, 27 196 C 26 208, 25 220, 24 232 C 23 242, 23 250, 24 256 C 26 262, 29 266, 33 268 C 36 268, 39 266, 40 262 C 41 256, 42 248, 43 240 C 44 230, 45 220, 46 208 C 47 198, 48 188, 50 178 C 52 168, 54 158, 56 148 C 58 140, 57 132, 56 126 Z"
-        fill="${colorFor(data.right_arm)}" stroke="#555" stroke-width="0.8" stroke-linejoin="round"/>
-      <circle cx="30" cy="280" r="9" fill="${colorFor(data.right_arm)}" stroke="#555" stroke-width="0.8"/>
+  const segPositions = {
+    right_arm: { style: 'left:8%;top:22%;width:22%;height:18%' },
+    trunk:     { style: 'left:36%;top:30%;width:28%;height:28%' },
+    left_arm:  { style: 'right:8%;top:22%;width:22%;height:18%' },
+    right_leg: { style: 'left:8%;top:68%;width:22%;height:22%' },
+    left_leg:  { style: 'right:8%;top:68%;width:22%;height:22%' },
+  };
 
-      <path d="M 148 124 C 156 128, 162 134, 166 142 C 168 150, 169 158, 170 166 C 171 176, 172 186, 173 196 C 174 208, 175 220, 176 232 C 177 242, 177 250, 176 256 C 174 262, 171 266, 167 268 C 164 268, 161 266, 160 262 C 159 256, 158 248, 157 240 C 156 230, 155 220, 154 208 C 153 198, 152 188, 150 178 C 148 168, 146 158, 144 148 C 142 140, 143 132, 144 126 Z"
-        fill="${colorFor(data.left_arm)}" stroke="#555" stroke-width="0.8" stroke-linejoin="round"/>
-      <circle cx="170" cy="280" r="9" fill="${colorFor(data.left_arm)}" stroke="#555" stroke-width="0.8"/>
+  const segLabels = {
+    right_arm: 'Braço D',
+    trunk:     'Tronco',
+    left_arm:  'Braço E',
+    right_leg: 'Perna D',
+    left_leg:  'Perna E',
+  };
 
-      <path d="M 73 312 C 72 322, 71 334, 70 348 C 69 362, 68 378, 68 394 C 68 410, 68 426, 69 440 C 70 454, 71 466, 73 476 C 75 484, 78 490, 82 492 L 95 492 C 97 488, 98 480, 98 470 C 98 456, 98 440, 98 424 C 98 408, 98 390, 98 372 C 98 354, 98 338, 98 324 C 98 318, 98 314, 98 312 Z"
-        fill="${colorFor(data.right_leg)}" stroke="#555" stroke-width="0.8" stroke-linejoin="round"/>
-      <ellipse cx="88" cy="504" rx="16" ry="6" fill="${colorFor(data.right_leg)}" stroke="#555" stroke-width="0.8"/>
+  const renderCol = (title, data, colorFn, textFn, fmtFn, unit, legend) => {
+    const segsHtml = Object.keys(segPositions).map(key => {
+      const val = data[key];
+      return `<div class="sil-seg" style="${segPositions[key].style};background:${colorFn(val)};color:${textFn(val)}">
+        <div class="sil-seg-name">${segLabels[key]}</div>
+        <div class="sil-seg-val">${fmtFn(val)}${unit}</div>
+      </div>`;
+    }).join('');
 
-      <path d="M 127 312 C 128 322, 129 334, 130 348 C 131 362, 132 378, 132 394 C 132 410, 132 426, 131 440 C 130 454, 129 466, 127 476 C 125 484, 122 490, 118 492 L 105 492 C 103 488, 102 480, 102 470 C 102 456, 102 440, 102 424 C 102 408, 102 390, 102 372 C 102 354, 102 338, 102 324 C 102 318, 102 314, 102 312 Z"
-        fill="${colorFor(data.left_leg)}" stroke="#555" stroke-width="0.8" stroke-linejoin="round"/>
-      <ellipse cx="112" cy="504" rx="16" ry="6" fill="${colorFor(data.left_leg)}" stroke="#555" stroke-width="0.8"/>
-    </svg>`;
+    return `
+      <div class="sil-col">
+        <div class="sil-title">${title}</div>
+        <div class="sil-body">
+          <svg class="sil-bg" viewBox="0 0 206.326 206.326" xmlns="http://www.w3.org/2000/svg">
+            <path d="${SILHOUETTE_PATH}" fill="#000"/>
+          </svg>
+          ${segsHtml}
+        </div>
+        <div class="sil-legend">${legend}</div>
+      </div>`;
+  };
 
-  document.getElementById('body-svg').innerHTML = svg;
+  const muscLegend = `
+    <div class="sil-legend-item"><div class="sil-dot" style="background:#c0dd97"></div>Menor (${f(mMin)}kg)</div>
+    <div class="sil-legend-item"><div class="sil-dot" style="background:#639922"></div>Maior (${f(mMax)}kg)</div>`;
 
-  document.getElementById('body-legend').innerHTML = `
-    <div class="body-legend-item"><div class="body-legend-dot" style="background:${colorFor(min)}"></div>Menor (${fmt(min)}${unit})</div>
-    <div class="body-legend-item"><div class="body-legend-dot" style="background:${colorFor((min+max)/2)}"></div>Médio</div>
-    <div class="body-legend-item"><div class="body-legend-dot" style="background:${colorFor(max)}"></div>Maior (${fmt(max)}${unit})</div>`;
+  const fatLegend = `
+    <div class="sil-legend-item"><div class="sil-dot" style="background:#97c459"></div>Normal</div>
+    <div class="sil-legend-item"><div class="sil-dot" style="background:#ef9f27"></div>Atenção</div>
+    <div class="sil-legend-item"><div class="sil-dot" style="background:#e24b4a"></div>Elevado</div>`;
+
+  document.getElementById('body-svg').innerHTML = `
+    <div class="sil-container">
+      ${renderCol('Massa muscular (kg)', mMus,
+          v => muscColor(v, mMin, mMax),
+          v => muscTextColor(v, mMin, mMax),
+          f, '', muscLegend)}
+      ${renderCol('Gordura corporal (%)', mFat,
+          fatColor, fatTextColor, fp, '%', fatLegend)}
+    </div>`;
 }
 
 function renderSegDetail(m) {
