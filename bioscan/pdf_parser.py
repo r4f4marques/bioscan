@@ -79,13 +79,15 @@ MAPEAMENTO TANITA (layout Bioeasy):
 - "IMC" → bmi (kg/m²)
 - "NÍVEL DE GORDURA" → fat_pct (%)
 - "MASSA ADIPOSA" → se aparecer, pode informar mas fat_pct é prioridade
-- "MASSA MUSCULAR" → muscle_kg (se em kg) OU muscle_quality (se em %, 0-100)
+- "MASSA MUSCULAR" (em kg, valores tipo 40-80kg) → ffm_kg (Tanita reporta massa magra total, não músculo esquelético)
+- "MASSA MUSCULAR" (em %, valores 0-100) → muscle_quality
 - "MASSA ÓSSEA" → bone_kg
 - "TAXA METABÓLICA BASAL" → bmr (kcal)
 - "GORDURA VISCERAL" → visceral
 - "ÁGUA CORPORAL" → water_pct (%) E/OU water_kg (kg)
 - "IDADE METABÓLICA" → meta_age
-- "FFM" ou "MASSA NÃO ADIPOSA" → ffm_kg
+- "FFM" ou "MASSA NÃO ADIPOSA" → ffm_kg (se ainda não preenchido por "MASSA MUSCULAR")
+- IMPORTANTE: Tanita NÃO tem "Massa Muscular Esquelética" — deixe muscle_kg como null
 - Para Tanita, manufacturer="tanita".
 
 MAPEAMENTO INBODY (layout InBody 270/370/570/770):

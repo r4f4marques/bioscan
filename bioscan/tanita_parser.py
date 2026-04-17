@@ -17,7 +17,7 @@ TANITA_MAP = {
     "BMI":                        "bmi",
     "Body Fat (%)":               "fat_pct",
     "Visc Fat":                   "visceral",
-    "Muscle Mass (kg)":           "muscle_kg",
+    "Muscle Mass (kg)":           "ffm_kg",       # Tanita reporta massa magra (FFM), não músculo esquelético
     "Muscle Quality":             "muscle_quality",
     "Bone Mass (kg)":             "bone_kg",
     "BMR (kcal)":                 "bmr",
