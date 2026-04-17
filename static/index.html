@@ -864,13 +864,21 @@ function renderUpload() {
       </div>
 
       <div class="card">
-        <div class="card-title">Importar CSV Tanita</div>
-        <div class="upload-zone" onclick="openCSVPicker()">
-          <div style="font-size:22px;margin-bottom:.5rem">↑</div>
-          <div style="font-size:13px;color:#999">Clique para selecionar o CSV exportado pela balança Tanita</div>
-          <div style="font-size:11px;color:#ccc;margin-top:4px">BC-780, BC-545N, MC-780MA e compatíveis</div>
+        <div class="card-title">Importar medição</div>
+        <div class="grid grid-2" style="gap:12px">
+          <div class="upload-zone" onclick="openCSVPicker()" style="padding:1.5rem">
+            <div style="font-size:20px;margin-bottom:.4rem">📄</div>
+            <div style="font-size:12px;font-weight:500;color:#1a1a18">Arquivo CSV</div>
+            <div style="font-size:10px;color:#999;margin-top:3px">Tanita BC-780, 545N, MC-780MA</div>
+          </div>
+          <div class="upload-zone" onclick="openPDFPicker()" style="padding:1.5rem">
+            <div style="font-size:20px;margin-bottom:.4rem">📑</div>
+            <div style="font-size:12px;font-weight:500;color:#1a1a18">Arquivo PDF</div>
+            <div style="font-size:10px;color:#999;margin-top:3px">Relatório Bioeasy Analysis (via IA)</div>
+          </div>
         </div>
         <input type="file" id="csvfile" accept=".csv" style="display:none" onchange="uploadCSV(this)">
+        <input type="file" id="pdffile" accept=".pdf" style="display:none" onchange="uploadPDF(this)">
         <div id="upload-result"></div>
       </div>
 
@@ -1029,6 +1037,49 @@ async function uploadCSV(input) {
       ✓ ${data.inserted} medição(ões) importada(s) · ${data.skipped} ignorada(s) (duplicata)
     </div>`;
     // Atualiza a lista de medições após importar
+    await loadPatientMeasurements(pid);
+  }
+}
+
+function openPDFPicker() {
+  const result = document.getElementById('upload-result');
+  if (!window._uploadPid) {
+    result.innerHTML = '<div class="error-box">Selecione um paciente antes de importar o PDF.</div>';
+    return;
+  }
+  result.innerHTML = '';
+  document.getElementById('pdffile').click();
+}
+
+async function uploadPDF(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const pid = window._uploadPid;
+  const result = document.getElementById('upload-result');
+  result.innerHTML = `<div style="color:#999;font-size:12px;margin-top:.5rem">
+    Processando PDF com IA... isso pode levar 10-20 segundos.
+  </div>`;
+
+  const form = new FormData();
+  form.append('pdf', file);
+
+  const data = await api('POST', `/bioscan/patients/${pid}/import-pdf`, form, true);
+  input.value = '';
+  if (!data) return;
+
+  if (data.error) {
+    let msg = data.error;
+    if (data.detected_name) {
+      msg += `<br><small>Nome detectado no PDF: <strong>${data.detected_name}</strong></small>`;
+    }
+    result.innerHTML = `<div class="error-box">${msg}</div>`;
+  } else {
+    const nameNote = data.detected_name
+      ? `<div class="info-box"><small>Nome detectado no PDF: <strong>${data.detected_name}</strong> (confira se corresponde ao paciente selecionado)</small></div>`
+      : '';
+    result.innerHTML = `
+      <div class="success-box">✓ Medição importada do PDF com sucesso!</div>
+      ${nameNote}`;
     await loadPatientMeasurements(pid);
   }
 }
