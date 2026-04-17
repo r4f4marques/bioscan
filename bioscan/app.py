@@ -78,43 +78,68 @@ def create_app() -> Flask:
 
 def _migrate_schema():
     """
-    Migração leve: adiciona colunas novas à tabela patients caso não existam.
+    Migração leve: adiciona colunas novas às tabelas caso não existam.
     Usado para rodar de forma transparente quando o schema é atualizado.
     """
     from sqlalchemy import text, inspect
 
     inspector = inspect(db.engine)
-    if "patients" not in inspector.get_table_names():
-        return
 
-    existing_cols = {col["name"] for col in inspector.get_columns("patients")}
-    alters = []
+    # ── patients: cpf e phone ──
+    if "patients" in inspector.get_table_names():
+        existing_cols = {col["name"] for col in inspector.get_columns("patients")}
+        alters = []
+        if "cpf" not in existing_cols:
+            alters.append("ADD COLUMN cpf VARCHAR(14)")
+        if "phone" not in existing_cols:
+            alters.append("ADD COLUMN phone VARCHAR(20)")
 
-    if "cpf" not in existing_cols:
-        alters.append("ADD COLUMN cpf VARCHAR(14)")
-    if "phone" not in existing_cols:
-        alters.append("ADD COLUMN phone VARCHAR(20)")
+        if alters:
+            with db.engine.begin() as conn:
+                for alter in alters:
+                    try:
+                        conn.execute(text(f"ALTER TABLE patients {alter}"))
+                        print(f"[BioScan] Migração: patients {alter}")
+                    except Exception as e:
+                        print(f"[BioScan] Migração falhou ({alter}): {e}")
 
-    if alters:
-        # Executa cada alteração em transação própria
-        with db.engine.begin() as conn:
-            for alter in alters:
+            if any("cpf" in a for a in alters):
                 try:
-                    conn.execute(text(f"ALTER TABLE patients {alter}"))
-                    print(f"[BioScan] Migração: patients {alter}")
+                    with db.engine.begin() as conn:
+                        conn.execute(text(
+                            "CREATE UNIQUE INDEX IF NOT EXISTS ix_patients_cpf ON patients(cpf)"
+                        ))
+                    print("[BioScan] Migração: índice único patients.cpf criado")
                 except Exception as e:
-                    print(f"[BioScan] Migração falhou ({alter}): {e}")
+                    print(f"[BioScan] Índice cpf falhou: {e}")
 
-        # Tenta criar índice único para CPF (ignora se já existe)
-        if "cpf" in [a.split()[2] for a in alters]:
-            try:
-                with db.engine.begin() as conn:
-                    conn.execute(text(
-                        "CREATE UNIQUE INDEX IF NOT EXISTS ix_patients_cpf ON patients(cpf)"
-                    ))
-                print("[BioScan] Migração: índice único patients.cpf criado")
-            except Exception as e:
-                print(f"[BioScan] Índice cpf falhou: {e}")
+    # ── measurements: campos InBody ──
+    if "measurements" in inspector.get_table_names():
+        existing_cols = {col["name"] for col in inspector.get_columns("measurements")}
+        new_columns = {
+            "water_kg":         "FLOAT",
+            "smi":              "FLOAT",
+            "protein_kg":       "FLOAT",
+            "mineral_kg":       "FLOAT",
+            "ffm_kg":           "FLOAT",
+            "waist_hip_ratio":  "FLOAT",
+            "obesity_degree":   "FLOAT",
+            "recommended_kcal": "FLOAT",
+            "inbody_score":     "FLOAT",
+        }
+        alters = []
+        for col, typ in new_columns.items():
+            if col not in existing_cols:
+                alters.append(f"ADD COLUMN {col} {typ}")
+
+        if alters:
+            with db.engine.begin() as conn:
+                for alter in alters:
+                    try:
+                        conn.execute(text(f"ALTER TABLE measurements {alter}"))
+                        print(f"[BioScan] Migração: measurements {alter}")
+                    except Exception as e:
+                        print(f"[BioScan] Migração falhou ({alter}): {e}")
 
 
 def _seed_demo():

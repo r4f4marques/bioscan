@@ -400,10 +400,10 @@ def import_csv(pid):
 @require_role("doctor")
 def import_pdf(pid):
     """
-    Importa medição a partir de PDF Tanita (imagem) via Groq Vision.
-    Extrai os valores com Llama 4 Scout e cria um Measurement.
+    Importa medição de PDF Tanita ou InBody via Groq Vision.
+    Detecta o fabricante automaticamente e usa o mapeamento correto.
     """
-    from .tanita_pdf_parser import parse_tanita_pdf
+    from .pdf_parser import parse_bioimpedance_pdf
 
     db.get_or_404(Patient, pid)
 
@@ -417,7 +417,7 @@ def import_pdf(pid):
         return jsonify({"error": "PDF vazio"}), 400
 
     try:
-        row = parse_tanita_pdf(pdf_bytes)
+        row = parse_bioimpedance_pdf(pdf_bytes)
     except RuntimeError as e:
         return jsonify({"error": f"Configuração: {str(e)}"}), 500
     except ValueError as e:
@@ -427,6 +427,7 @@ def import_pdf(pid):
 
     measured_at = row.pop("measured_at")
     detected_name = row.pop("_patient_name_detected", None)
+    manufacturer = row.pop("_manufacturer", "unknown")
 
     # Evita duplicatas pela data de medição
     exists = Measurement.query.filter_by(
@@ -436,10 +437,13 @@ def import_pdf(pid):
             "error": f"Já existe medição para {measured_at.strftime('%d/%m/%Y')} neste paciente",
             "measurement_id": exists.id,
             "detected_name": detected_name,
+            "manufacturer": manufacturer,
         }), 409
 
-    m = Measurement(patient_id=pid, source="tanita_pdf",
-                    measured_at=measured_at)
+    # source reflete o fabricante detectado
+    source = f"{manufacturer}_pdf" if manufacturer in ("tanita", "inbody") else "pdf"
+
+    m = Measurement(patient_id=pid, source=source, measured_at=measured_at)
     _fill_measurement(m, row)
     db.session.add(m)
     db.session.commit()
@@ -448,6 +452,7 @@ def import_pdf(pid):
         "inserted": 1,
         "measurement": m.to_dict(),
         "detected_name": detected_name,
+        "manufacturer": manufacturer,
     }), 201
 
 
@@ -598,7 +603,10 @@ def patient_report_pdf(pid):
 
 MEASUREMENT_FIELDS = [
     "weight", "bmi", "fat_pct", "visceral", "muscle_kg", "muscle_quality",
-    "bone_kg", "bmr", "meta_age", "water_pct", "physique_rating", "heart_rate",
+    "bone_kg", "bmr", "meta_age", "water_pct", "water_kg",
+    "physique_rating", "heart_rate",
+    "smi", "protein_kg", "mineral_kg", "ffm_kg",
+    "waist_hip_ratio", "obesity_degree", "recommended_kcal", "inbody_score",
     "seg_musc_right_arm", "seg_musc_left_arm", "seg_musc_right_leg",
     "seg_musc_left_leg", "seg_musc_trunk",
     "seg_qual_right_arm", "seg_qual_left_arm", "seg_qual_right_leg",

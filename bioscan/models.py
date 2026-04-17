@@ -139,8 +139,19 @@ class Measurement(db.Model):
     bmr             = db.Column(db.Float)
     meta_age        = db.Column(db.Float)
     water_pct       = db.Column(db.Float)
+    water_kg        = db.Column(db.Float)          # InBody: Água Corporal Total em L
     physique_rating = db.Column(db.Integer)
     heart_rate      = db.Column(db.Integer)
+
+    # Campos adicionais InBody
+    smi              = db.Column(db.Float)         # Skeletal Muscle Index (kg/m²)
+    protein_kg       = db.Column(db.Float)         # Proteína (kg)
+    mineral_kg       = db.Column(db.Float)         # Minerais (kg)
+    ffm_kg           = db.Column(db.Float)         # Massa Livre de Gordura (kg)
+    waist_hip_ratio  = db.Column(db.Float)         # Relação Cintura-Quadril
+    obesity_degree   = db.Column(db.Float)         # Grau de obesidade (%)
+    recommended_kcal = db.Column(db.Float)         # Ingestão calórica recomendada
+    inbody_score     = db.Column(db.Float)         # Pontuação InBody (0-100)
 
     seg_musc_right_arm  = db.Column(db.Float)
     seg_musc_left_arm   = db.Column(db.Float)
@@ -179,8 +190,17 @@ class Measurement(db.Model):
             "bmr":          self.bmr,
             "meta_age":     self.meta_age,
             "water_pct":    self.water_pct,
+            "water_kg":     self.water_kg,
             "physique_rating": self.physique_rating,
             "heart_rate":   self.heart_rate,
+            "smi":              self.smi,
+            "protein_kg":       self.protein_kg,
+            "mineral_kg":       self.mineral_kg,
+            "ffm_kg":           self.ffm_kg,
+            "waist_hip_ratio":  self.waist_hip_ratio,
+            "obesity_degree":   self.obesity_degree,
+            "recommended_kcal": self.recommended_kcal,
+            "inbody_score":     self.inbody_score,
             "seg_musc": {
                 "right_arm": self.seg_musc_right_arm,
                 "left_arm":  self.seg_musc_left_arm,
