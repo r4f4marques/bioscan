@@ -908,6 +908,9 @@ function renderSegDetail(m) {
     {name:'Tronco',         key:'trunk'},
   ];
 
+  // Mostra coluna Qualidade só se algum segmento tem valor
+  const hasQuality = segs.some(s => m.seg_qual[s.key] != null);
+
   const rows = segs.map(s => {
     const f = m.seg_fat[s.key];
     const mc = m.seg_musc[s.key];
@@ -916,13 +919,16 @@ function renderSegDetail(m) {
       <td style="font-weight:500">${s.name}</td>
       <td>${f != null ? f.toFixed(1) + '%' : '—'}</td>
       <td>${mc != null ? mc.toFixed(2) + ' kg' : '—'}</td>
-      <td>${q != null ? `<span class="badge ok">${q}</span>` : '—'}</td>
+      ${hasQuality ? `<td>${q != null ? `<span class="badge ok">${q}</span>` : '—'}</td>` : ''}
     </tr>`;
   }).join('');
 
   document.getElementById('seg-detail').innerHTML = `
     <table class="evo-tbl">
-      <thead><tr><th>Segmento</th><th>Gordura</th><th>Músculo</th><th>Qualidade</th></tr></thead>
+      <thead><tr>
+        <th>Segmento</th><th>Gordura</th><th>Músculo</th>
+        ${hasQuality ? '<th>Qualidade</th>' : ''}
+      </tr></thead>
       <tbody>${rows}</tbody>
     </table>`;
 }
