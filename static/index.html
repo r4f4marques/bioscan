@@ -71,7 +71,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .error-box{color:#c0392b;font-size:12px;padding:.5rem .75rem;background:#fde8e8;border-radius:6px;margin-top:.5rem}
 .chart-container{position:relative;height:200px;margin-top:.5rem}
 .body-diagram{display:flex;justify-content:center;padding:1rem}
-.body-diagram svg{max-width:100%;width:100%}
+.body-diagram svg{max-width:220px;max-height:500px;width:100%;height:auto}
 .body-legend{display:flex;gap:1rem;justify-content:center;font-size:11px;color:#888;margin-top:.75rem;flex-wrap:wrap}
 .body-legend-item{display:flex;align-items:center;gap:4px}
 .body-legend-dot{width:10px;height:10px;border-radius:2px}
@@ -580,7 +580,7 @@ function showBodyMode(mode) {
 
   // SVG do corpo humano — silhueta anatômica com curvas Bézier
   const svg = `
-    <svg viewBox="-55 10 320 540" xmlns="http://www.w3.org/2000/svg">
+    <svg viewBox="0 0 200 530" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet">
       <path d="M 100 20 C 90 20, 82 28, 79 40 C 77 48, 77 56, 79 63 C 76 65, 76 68, 78 71 C 80 72, 82 72, 83 71 C 85 76, 87 80, 89 82 L 89 92 L 111 92 L 111 82 C 113 80, 115 76, 117 71 C 118 72, 120 72, 122 71 C 124 68, 124 65, 121 63 C 123 56, 123 48, 121 40 C 118 28, 110 20, 100 20 Z"
         fill="#d5d4ce" stroke="#999" stroke-width="0.8"/>
 
@@ -605,27 +605,6 @@ function showBodyMode(mode) {
       <path d="M 127 312 C 128 322, 129 334, 130 348 C 131 362, 132 378, 132 394 C 132 410, 132 426, 131 440 C 130 454, 129 466, 127 476 C 125 484, 122 490, 118 492 L 105 492 C 103 488, 102 480, 102 470 C 102 456, 102 440, 102 424 C 102 408, 102 390, 102 372 C 102 354, 102 338, 102 324 C 102 318, 102 314, 102 312 Z"
         fill="${colorFor(data.left_leg)}" stroke="#555" stroke-width="0.8" stroke-linejoin="round"/>
       <ellipse cx="112" cy="504" rx="16" ry="6" fill="${colorFor(data.left_leg)}" stroke="#555" stroke-width="0.8"/>
-
-      <line x1="27" y1="200" x2="0" y2="210" stroke="#ccc" stroke-width="0.5" stroke-dasharray="2 2"/>
-      <line x1="173" y1="200" x2="200" y2="210" stroke="#ccc" stroke-width="0.5" stroke-dasharray="2 2"/>
-      <line x1="100" y1="220" x2="155" y2="180" stroke="#ccc" stroke-width="0.5" stroke-dasharray="2 2"/>
-      <line x1="85" y1="400" x2="40" y2="420" stroke="#ccc" stroke-width="0.5" stroke-dasharray="2 2"/>
-      <line x1="115" y1="400" x2="160" y2="420" stroke="#ccc" stroke-width="0.5" stroke-dasharray="2 2"/>
-
-      <text x="-50" y="208" font-size="9" fill="#1a1a18" font-weight="500">Braço D</text>
-      <text x="-50" y="220" font-size="8" fill="#666">${fmt(data.right_arm)}${unit}</text>
-
-      <text x="178" y="208" font-size="9" fill="#1a1a18" font-weight="500">Braço E</text>
-      <text x="178" y="220" font-size="8" fill="#666">${fmt(data.left_arm)}${unit}</text>
-
-      <text x="158" y="178" font-size="9" fill="#1a1a18" font-weight="500">Tronco</text>
-      <text x="158" y="190" font-size="8" fill="#666">${fmt(data.trunk)}${unit}</text>
-
-      <text x="-50" y="418" font-size="9" fill="#1a1a18" font-weight="500">Perna D</text>
-      <text x="-50" y="430" font-size="8" fill="#666">${fmt(data.right_leg)}${unit}</text>
-
-      <text x="163" y="418" font-size="9" fill="#1a1a18" font-weight="500">Perna E</text>
-      <text x="163" y="430" font-size="8" fill="#666">${fmt(data.left_leg)}${unit}</text>
     </svg>`;
 
   document.getElementById('body-svg').innerHTML = svg;
