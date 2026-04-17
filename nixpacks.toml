@@ -1,0 +1,6 @@
+# BioScan Healthspan — Configuração Nixpacks para Railway
+# Adiciona binários do sistema necessários para as dependências Python.
+# poppler_utils é necessário pelo pdf2image (parse de PDFs Tanita).
+
+[phases.setup]
+nixPkgs = ["python311", "poppler_utils"]
