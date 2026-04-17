@@ -1,41 +1,27 @@
 """
 BioScan Healthspan — App Factory
 Integração com TriDash (Flask + Railway)
-
-USO STANDALONE:
-    python -m bioscan.app
-
-INTEGRAÇÃO NO TRIDASH:
-    No seu app.py principal do TriDash:
-        from bioscan.app import init_bioscan
-        init_bioscan(app)
 """
 
 import os
-from flask import Flask
+from flask import Flask, send_from_directory
 from .models import db
 from .routes import bioscan_bp
 
 
 def init_bioscan(app: Flask):
-    """
-    Registra o BioScan em um app Flask existente (TriDash).
-    Chame depois de configurar o app, antes do primeiro request.
-    """
+    """Registra o BioScan em um app Flask existente (TriDash)."""
     if not app.extensions.get("sqlalchemy"):
         db.init_app(app)
-
     app.register_blueprint(bioscan_bp, url_prefix="/bioscan")
-
     with app.app_context():
         db.create_all()
-
     return app
 
 
 def create_app() -> Flask:
     """App factory para uso standalone / testes."""
-    app = Flask(__name__)
+    app = Flask(__name__, static_folder="../static", static_url_path="/static")
 
     database_url = os.environ.get("DATABASE_URL", "sqlite:///bioscan.db")
     if database_url.startswith("postgres://"):
@@ -50,6 +36,15 @@ def create_app() -> Flask:
 
     db.init_app(app)
     app.register_blueprint(bioscan_bp, url_prefix="/bioscan")
+
+    # ── Rotas do frontend ─────────────────────────────────────────────────
+    @app.route("/")
+    def index():
+        return send_from_directory("../static", "login.html")
+
+    @app.route("/dashboard")
+    def dashboard():
+        return send_from_directory("../static", "index.html")
 
     with app.app_context():
         db.create_all()
