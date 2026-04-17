@@ -220,6 +220,151 @@ def segmental_chart_png(m):
     return buf.getvalue()
 
 
+# ── BARRAS DE REFERÊNCIA (estilo InBody) ─────────────────────────────────
+
+def reference_bands(patient):
+    """Retorna faixas de referência baseadas em idade e sexo."""
+    sex = getattr(patient, "sex", None)
+    age = getattr(patient, "age", None) or 40
+
+    # % Gordura (ACSM)
+    if sex == "F":
+        if age < 40:   fat_min, fat_max = 21, 33
+        elif age < 60: fat_min, fat_max = 23, 34
+        else:          fat_min, fat_max = 24, 36
+    else:
+        if age < 40:   fat_min, fat_max = 8, 19
+        elif age < 60: fat_min, fat_max = 11, 22
+        else:          fat_min, fat_max = 13, 25
+
+    return {
+        "fat_min": fat_min, "fat_max": fat_max,
+        "bmi_min": 18.5,    "bmi_max": 24.9,
+    }
+
+
+def reference_bars_png(m, patient):
+    """
+    Gera gráfico 'InBody-style' com barras horizontais das métricas principais.
+    Zonas fixas: abaixo (0-30%), normal (30-60%), acima (60-100%).
+    """
+    ref = reference_bands(patient)
+    h_m = getattr(patient, "height_cm", None)
+    h_m = h_m / 100 if h_m else None
+
+    # Define as barras: (label, valor, faixa_min, faixa_max, unidade)
+    bars = []
+
+    # Peso via IMC × altura²
+    if h_m and m.weight:
+        w_min = ref["bmi_min"] * h_m * h_m
+        w_max = ref["bmi_max"] * h_m * h_m
+        bars.append(("Peso", m.weight, w_min, w_max, "kg"))
+
+    # Massa muscular: 32-42% (F), 38-48% (M)
+    sex = getattr(patient, "sex", None)
+    if m.weight and m.muscle_kg:
+        if sex == "F":
+            mm_min, mm_max = m.weight * 0.32, m.weight * 0.42
+        else:
+            mm_min, mm_max = m.weight * 0.38, m.weight * 0.48
+        bars.append(("Massa muscular", m.muscle_kg, mm_min, mm_max, "kg"))
+
+    # IMC
+    if m.bmi:
+        bars.append(("IMC", m.bmi, ref["bmi_min"], ref["bmi_max"], "kg/m²"))
+
+    # % Gordura corporal
+    if m.fat_pct is not None:
+        bars.append(("% Gordura corporal", m.fat_pct,
+                     ref["fat_min"], ref["fat_max"], "%"))
+
+    if not bars:
+        return None
+
+    # Zonas fixas
+    Z_LOW = 30   # abaixo: 0-30%
+    Z_HIGH = 60  # normal: 30-60%, acima: 60-100%
+
+    def marker_pos(value, range_min, range_max):
+        """Posição do marcador (0-100) dentro das zonas alinhadas."""
+        if value < range_min:
+            t = max(0, value) / range_min if range_min > 0 else 0
+            return t * Z_LOW
+        elif value <= range_max:
+            t = (value - range_min) / (range_max - range_min)
+            return Z_LOW + t * (Z_HIGH - Z_LOW)
+        else:
+            t = min(1, (value - range_max) / range_max)
+            return Z_HIGH + t * (100 - Z_HIGH)
+
+    # Cria figura
+    n = len(bars)
+    fig = Figure(figsize=(7.5, 0.7 + n * 0.55), dpi=120)
+    ax = fig.add_subplot(111)
+
+    bar_h = 0.45
+    y_positions = list(range(n, 0, -1))
+
+    # Cores das zonas (mesmas do frontend)
+    c_below  = "#a8c9e8"
+    c_normal = "#a8d89b"
+    c_above  = "#e8a89b"
+
+    for (label, value, rmin, rmax, unit), y in zip(bars, y_positions):
+        # Desenha as 3 zonas
+        ax.barh(y, Z_LOW, left=0, height=bar_h, color=c_below, edgecolor="none")
+        ax.barh(y, Z_HIGH - Z_LOW, left=Z_LOW, height=bar_h, color=c_normal, edgecolor="none")
+        ax.barh(y, 100 - Z_HIGH, left=Z_HIGH, height=bar_h, color=c_above, edgecolor="none")
+
+        # Marcador
+        mpos = marker_pos(value, rmin, rmax)
+        ax.plot([mpos, mpos], [y - bar_h/2 - 0.08, y + bar_h/2 + 0.08],
+                color="#1a1a18", linewidth=2.5, solid_capstyle="butt", zorder=5)
+        ax.plot([mpos], [y], marker="D", markersize=7,
+                color="#1a1a18", markeredgecolor="white", markeredgewidth=1.2, zorder=6)
+
+        # Classificação (texto colorido à direita)
+        if value < rmin:
+            status, scolor = "Abaixo", "#1a6fa8"
+        elif value <= rmax:
+            status, scolor = "Normal", "#2d6a1f"
+        else:
+            status, scolor = "Acima", "#a82020"
+
+        value_str = f"{value:.1f} {unit}"
+        ax.text(107, y, value_str, ha="left", va="center",
+                fontsize=9, fontweight="bold", color="#1a1a18")
+        ax.text(137, y, f"[{status}]", ha="left", va="center",
+                fontsize=8, color=scolor, fontweight="bold")
+
+    # Labels das barras (à esquerda)
+    ax.set_yticks(y_positions)
+    ax.set_yticklabels([b[0] for b in bars], fontsize=9)
+
+    # Labels das zonas (embaixo)
+    ax.text(Z_LOW / 2, 0.3, "Abaixo", ha="center", fontsize=7, color="#666")
+    ax.text((Z_LOW + Z_HIGH) / 2, 0.3, "Normal", ha="center", fontsize=7, color="#666")
+    ax.text((Z_HIGH + 100) / 2, 0.3, "Acima", ha="center", fontsize=7, color="#666")
+
+    ax.set_xlim(-2, 170)
+    ax.set_ylim(0, n + 0.8)
+    ax.set_xticks([])
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.spines["bottom"].set_visible(False)
+    ax.spines["left"].set_visible(False)
+    ax.tick_params(left=False)
+
+    fig.tight_layout()
+
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", bbox_inches="tight", facecolor="white")
+    plt.close(fig)
+    buf.seek(0)
+    return buf.getvalue()
+
+
 # ── TABELA DE MÉTRICAS COM VALORES DE REFERÊNCIA ─────────────────────────
 
 def metrics_table(m, p, styles):
@@ -298,10 +443,11 @@ def history_table(measurements, styles):
     rows = [["Data", "Peso (kg)", "Gordura (%)", "Músculo (kg)",
              "Visceral", "Id. met.", "BMR"]]
 
-    # Se há mais de uma medição no mesmo dia, inclui hora para distinguir
+    # Se há mais de uma medição no mesmo dia COM horário real, inclui hora para distinguir
     dates = [m.measured_at.date() for m in measurements]
     has_same_day = len(dates) != len(set(dates))
-    date_fmt = "%d/%m/%Y %H:%M" if has_same_day else "%d/%m/%Y"
+    has_real_time = any(m.measured_at.time() != datetime.min.time() for m in measurements)
+    date_fmt = "%d/%m/%Y %H:%M" if (has_same_day and has_real_time) else "%d/%m/%Y"
 
     for m in reversed(measurements):
         rows.append([
@@ -314,7 +460,7 @@ def history_table(measurements, styles):
             f"{m.bmr:.0f}" if m.bmr else "—",
         ])
 
-    data_col_w = 3.4 * cm if has_same_day else 2.6 * cm
+    data_col_w = 3.4 * cm if (has_same_day and has_real_time) else 2.6 * cm
     t = Table(rows, colWidths=[data_col_w, 2.1 * cm, 2.3 * cm, 2.4 * cm,
                                2 * cm, 2 * cm, 2 * cm])
     t.setStyle(TableStyle([
@@ -449,18 +595,27 @@ def generate_pdf(patient, measurements, risk_flags) -> bytes:
     last = measurements[-1]
     first = measurements[0]
 
-    # Formato do período — inclui hora quando primeira e última medição são no mesmo dia
+    # Formato do período — inclui hora quando medições do mesmo dia têm horários reais (não 00:00)
     same_day = first.measured_at.date() == last.measured_at.date()
-    date_fmt = "%d/%m/%Y %H:%M" if same_day else "%d/%m/%Y"
+    has_real_time = (
+        first.measured_at.time() != datetime.min.time() or
+        last.measured_at.time() != datetime.min.time()
+    )
+    date_fmt = "%d/%m/%Y %H:%M" if (same_day and has_real_time) else "%d/%m/%Y"
 
     story.append(Paragraph("Resumo da última avaliação", styles["h2"]))
-    story.append(Paragraph(
-        f"Medição de {last.measured_at.strftime(date_fmt)} · "
-        f"{len(measurements)} medição(ões) no histórico · "
-        f"período acompanhado: {first.measured_at.strftime(date_fmt)} → "
-        f"{last.measured_at.strftime(date_fmt)}",
-        styles["small"]
-    ))
+
+    # Se só há uma medição, subtítulo mais simples
+    if len(measurements) == 1:
+        subtitle = f"Medição de {last.measured_at.strftime(date_fmt)} · medição única no histórico"
+    else:
+        subtitle = (
+            f"Medição de {last.measured_at.strftime(date_fmt)} · "
+            f"{len(measurements)} medições no histórico · "
+            f"período acompanhado: {first.measured_at.strftime(date_fmt)} → "
+            f"{last.measured_at.strftime(date_fmt)}"
+        )
+    story.append(Paragraph(subtitle, styles["small"]))
     story.append(Spacer(1, 6))
 
     # ── TABELA DE MÉTRICAS ──
@@ -470,24 +625,35 @@ def generate_pdf(patient, measurements, risk_flags) -> bytes:
     story.append(Paragraph("Alertas clínicos", styles["h2"]))
     story.append(flags_table(risk_flags, styles))
 
+    # ── BARRAS DE REFERÊNCIA (estilo InBody) ──
+    ref_png = reference_bars_png(last, patient)
+    if ref_png:
+        story.append(Spacer(1, 10))
+        story.append(Paragraph("Análise de composição corporal", styles["h2"]))
+        story.append(Image(io.BytesIO(ref_png), width=17 * cm, height=1 * cm + len([
+            x for x in [
+                getattr(last, 'weight', None), getattr(last, 'muscle_kg', None),
+                getattr(last, 'bmi', None), getattr(last, 'fat_pct', None)
+            ] if x is not None
+        ]) * 1.35 * cm))
+
     # ── ANÁLISE SEGMENTAL ──
-    story.append(Paragraph("Análise segmental", styles["h2"]))
     seg_png = segmental_chart_png(last)
     if seg_png:
-        story.append(Image(io.BytesIO(seg_png), width=17 * cm, height=6 * cm))
-
-    story.append(PageBreak())
-
-    # ── EVOLUÇÃO ──
-    story.append(Paragraph("Evolução temporal", styles["h2"]))
-
-    if len(measurements) < 2:
-        story.append(Paragraph(
-            "Gráficos de evolução requerem ao menos 2 medições. "
-            "Atualmente há apenas 1 registro.",
-            styles["body"]
-        ))
+        story.append(KeepTogether([
+            Paragraph("Análise segmental", styles["h2"]),
+            Spacer(1, 6),
+            Image(io.BytesIO(seg_png), width=17 * cm, height=6 * cm),
+        ]))
     else:
+        story.append(Paragraph("Análise segmental", styles["h2"]))
+        story.append(Paragraph("Dados segmentais não disponíveis.", styles["small"]))
+
+    # ── EVOLUÇÃO TEMPORAL (só aparece com 2+ medições) ──
+    if len(measurements) >= 2:
+        story.append(PageBreak())
+        story.append(Paragraph("Evolução temporal", styles["h2"]))
+
         # Deltas resumidos
         def delta(attr):
             a, b = getattr(first, attr), getattr(last, attr)
@@ -568,14 +734,14 @@ def generate_pdf(patient, measurements, risk_flags) -> bytes:
             ]))
             story.append(chart_table)
 
-    story.append(PageBreak())
-
     # ── HISTÓRICO COMPLETO ──
+    story.append(Spacer(1, 18))
     story.append(Paragraph("Histórico completo de medições", styles["h2"]))
     story.append(history_table(measurements, styles))
 
     # ── OBSERVAÇÕES ──
     if getattr(patient, "notes", None):
+        story.append(Spacer(1, 14))
         story.append(Paragraph("Observações clínicas", styles["h2"]))
         story.append(Paragraph(patient.notes, styles["body"]))
 
