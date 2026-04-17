@@ -167,6 +167,17 @@ def list_patients():
     return jsonify([p.to_dict() for p in patients])
 
 
+@bioscan_bp.get("/patients/by-cpf/<cpf>")
+@require_role("doctor")
+def get_patient_by_cpf(cpf):
+    """Busca paciente por CPF (com ou sem formatação)."""
+    cpf_formatted = format_cpf(cpf)
+    p = Patient.query.filter_by(cpf=cpf_formatted).first()
+    if not p:
+        return jsonify({"error": "Paciente não encontrado"}), 404
+    return jsonify(p.to_dict(include_measurements=True))
+
+
 @bioscan_bp.post("/patients")
 @require_role("doctor")
 def create_patient():
