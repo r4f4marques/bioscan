@@ -780,6 +780,66 @@ async function savePatient(id) {
 // ── OVERVIEW ──────────────────────────────────────────────────────────────
 
 // Card secundário dinâmico: mostra 4 campos mais relevantes disponíveis
+// Card principal: mostra Idade metabólica (Tanita) OU Pontuação InBody (fallback)
+function renderAgeOrScoreCard(m, p) {
+  const age = p.age ?? '—';
+  const flagsHtml = (p.risk_flags || []).map(
+    f => `<div class="badge ${f.level}" style="display:block;margin-bottom:4px;padding:4px 8px">${f.message}</div>`
+  ).join('');
+
+  // Prioridade 1: idade metabólica (se disponível)
+  if (m.meta_age != null) {
+    const metaDiff = p.age != null ? m.meta_age - p.age : null;
+    const metaColor = metaDiff === null ? '#bbb' : metaDiff < 0 ? '#2d6a1f' : metaDiff <= 5 ? '#1a6fa8' : '#9b1c1c';
+    return `
+      <div class="card">
+        <div class="card-title">Idade metabólica vs. real</div>
+        <div class="age-row">
+          <div><div class="age-num" style="color:#bbb">${age}</div><div class="age-lbl">Idade real</div></div>
+          <div style="font-size:20px;color:#ddd">→</div>
+          <div><div class="age-num" style="color:${metaColor}">${m.meta_age}</div><div class="age-lbl">Metabólica</div></div>
+          ${metaDiff !== null ? `<div><div style="font-size:var(--fs-base);font-weight:600;color:${metaColor}">${metaDiff > 0 ? '+' : ''}${metaDiff}</div><div class="age-lbl">anos</div></div>` : ''}
+        </div>
+        <div style="margin-top:1rem">${flagsHtml}</div>
+      </div>`;
+  }
+
+  // Prioridade 2: Pontuação InBody (se disponível)
+  if (m.inbody_score != null) {
+    // Cor baseada no score: <70 alerta, 70-80 ok, >80 ótimo
+    const score = m.inbody_score;
+    const scoreColor = score >= 80 ? '#2d6a1f' : score >= 70 ? '#1a6fa8' : score >= 60 ? '#b07410' : '#9b1c1c';
+    const scoreLabel = score >= 80 ? 'Excelente' : score >= 70 ? 'Bom' : score >= 60 ? 'Regular' : 'Atenção';
+    return `
+      <div class="card">
+        <div class="card-title">Pontuação InBody <small>avaliação global</small></div>
+        <div style="display:flex;align-items:center;gap:1.5rem;padding:.5rem 0">
+          <div>
+            <div class="age-num" style="color:${scoreColor}">${score}</div>
+            <div class="age-lbl">de 100</div>
+          </div>
+          <div style="flex:1">
+            <div style="font-size:var(--fs-base);font-weight:500;color:${scoreColor};margin-bottom:4px">${scoreLabel}</div>
+            <div style="font-size:var(--fs-sm);color:#666;line-height:1.5">
+              Pontuação geral da composição corporal. Valores acima de 80 indicam corpo atlético/ótimo; 70-80 normal; abaixo de 70 merece atenção.
+            </div>
+          </div>
+        </div>
+        <div style="margin-top:1rem">${flagsHtml}</div>
+      </div>`;
+  }
+
+  // Fallback: card simples só com alertas se nenhuma métrica está disponível
+  return `
+    <div class="card">
+      <div class="card-title">Avaliação geral</div>
+      <div style="font-size:var(--fs-sm);color:#999;padding:.5rem 0">
+        Métricas de avaliação global (idade metabólica ou pontuação) não disponíveis nesta medição.
+      </div>
+      <div style="margin-top:1rem">${flagsHtml}</div>
+    </div>`;
+}
+
 function renderSecondaryCards(m) {
   const fmt = (v, dec = 1) => v == null ? '—' : v.toFixed(dec);
   const fmtInt = (v) => v == null ? '—' : Math.round(v);
@@ -793,10 +853,6 @@ function renderSecondaryCards(m) {
     m.bmr != null && {
       label: 'Metabolismo basal',
       val: fmt(m.bmr, 0), unit: 'kcal'
-    },
-    m.inbody_score != null && {
-      label: 'Pontuação InBody',
-      val: fmtInt(m.inbody_score), unit: '/100'
     },
     m.smi != null && {
       label: 'SMI',
@@ -866,10 +922,6 @@ function renderOverview() {
     return;
   }
 
-  const age = p.age || '—';
-  const metaDiff = m.meta_age && p.age ? m.meta_age - p.age : null;
-  const metaColor = metaDiff === null ? '#bbb' : metaDiff < 0 ? '#2d6a1f' : metaDiff <= 5 ? '#1a6fa8' : '#9b1c1c';
-
   document.getElementById('content').innerHTML = `
     <div class="grid grid-4">
       <div class="mcard"><div class="mcard-label">Peso</div><div class="mcard-val">${m.weight?.toFixed(1) ?? '—'}<span class="mcard-unit">kg</span></div><div class="mcard-sub">IMC ${m.bmi?.toFixed(1) ?? '—'}${m.bmi ? ' · <span class="badge ' + bmiStatus(m.bmi) + '">' + bl(bmiStatus(m.bmi)) + '</span>' : ''}</div></div>
@@ -881,18 +933,7 @@ function renderOverview() {
       ${renderSecondaryCards(m)}
     </div>
     <div class="grid grid-2">
-      <div class="card">
-        <div class="card-title">Idade metabólica vs. real</div>
-        <div class="age-row">
-          <div><div class="age-num" style="color:#bbb">${age}</div><div class="age-lbl">Idade real</div></div>
-          <div style="font-size:20px;color:#ddd">→</div>
-          <div><div class="age-num" style="color:${metaColor}">${m.meta_age || '—'}</div><div class="age-lbl">Metabólica</div></div>
-          ${metaDiff !== null ? `<div><div style="font-size:var(--fs-base);font-weight:600;color:${metaColor}">${metaDiff > 0 ? '+' : ''}${metaDiff}</div><div class="age-lbl">anos</div></div>` : ''}
-        </div>
-        <div style="margin-top:1rem">
-          ${(p.risk_flags || []).map(f => `<div class="badge ${f.level}" style="display:block;margin-bottom:4px;padding:4px 8px">${f.message}</div>`).join('')}
-        </div>
-      </div>
+      ${renderAgeOrScoreCard(m, p)}
       ${isDoctor ? `
       <div class="card">
         <div class="card-title">Interpretação IA <small>Groq llama-3.3-70b</small></div>
