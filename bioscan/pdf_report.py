@@ -87,11 +87,11 @@ STATUS_LABELS = {"ok": "Normal", "warn": "Atenção", "alert": "Elevado"}
 def make_styles():
     return {
         "title": ParagraphStyle("title", fontName="Helvetica-Bold",
-                                fontSize=16, textColor=COLOR_PRIMARY,
-                                spaceAfter=2),
+                                fontSize=18, textColor=COLOR_PRIMARY,
+                                leading=22, spaceAfter=6),
         "subtitle": ParagraphStyle("subtitle", fontName="Helvetica",
-                                   fontSize=9, textColor=COLOR_MUTED,
-                                   spaceAfter=12),
+                                   fontSize=10, textColor=COLOR_MUTED,
+                                   leading=13, spaceAfter=14),
         "h2": ParagraphStyle("h2", fontName="Helvetica-Bold",
                              fontSize=11, textColor=COLOR_PRIMARY,
                              spaceBefore=14, spaceAfter=6),
@@ -101,6 +101,9 @@ def make_styles():
         "body": ParagraphStyle("body", fontName="Helvetica",
                                fontSize=9, textColor=COLOR_PRIMARY,
                                leading=12),
+        "body_center": ParagraphStyle("body_center", fontName="Helvetica",
+                                      fontSize=9, textColor=COLOR_PRIMARY,
+                                      leading=12, alignment=TA_CENTER),
         "small": ParagraphStyle("small", fontName="Helvetica",
                                 fontSize=8, textColor=COLOR_MUTED,
                                 leading=10),
@@ -382,10 +385,10 @@ def metrics_table(m, p, styles):
     def bmi_val(v):
         if v is None:
             return "—"
-        return Paragraph(f"{v:.2f} kg/m<super>2</super>", styles["body"])
+        return Paragraph(f"{v:.2f} kg/m<super>2</super>", styles["body_center"])
 
     def bmi_ref_p():
-        return Paragraph("18,5 – 24,9 kg/m<super>2</super>", styles["body"])
+        return Paragraph("18,5 – 24,9 kg/m<super>2</super>", styles["body_center"])
 
     # Valores de referência baseados em diretrizes clínicas
     fat_ref = "10-22% (H) / 20-32% (M)" if sex == "M" else "10-22% (H) / 20-32% (M)"
