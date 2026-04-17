@@ -1,1 +1,1 @@
-web: python -m bioscan.app
+web: gunicorn -c bioscan/gunicorn_config.py bioscan.wsgi:app
