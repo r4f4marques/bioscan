@@ -253,24 +253,16 @@ def _normalize_extraction(data: dict) -> dict:
     if result["water_pct"] is None and result["water_kg"] and result["weight"]:
         result["water_pct"] = round(result["water_kg"] / result["weight"] * 100, 1)
 
-    # Segmentos achatados
+    # Segmentos achatados — salvos no banco EXATAMENTE como vêm do PDF.
+    # A conversão de unidades (kg → % para InBody) acontece no to_dict()
+    # do Measurement, preservando os dados originais.
     seg_musc = data.get("seg_musc") or {}
     seg_fat = data.get("seg_fat") or {}
     manufacturer = (data.get("manufacturer") or "").lower()
 
     for side in ("right_arm", "left_arm", "right_leg", "left_leg", "trunk"):
-        musc_val = _num(seg_musc.get(side))
-        fat_val  = _num(seg_fat.get(side))
-
-        result[f"seg_musc_{side}"] = musc_val
-
-        # InBody reporta seg_fat em kg. Convertemos para % relativo ao segmento:
-        # % = gordura / (gordura + massa_magra) × 100
-        # Assim fica na mesma unidade que o Tanita (que já vem em %).
-        if manufacturer == "inbody" and fat_val is not None and musc_val is not None and (fat_val + musc_val) > 0:
-            result[f"seg_fat_{side}"] = round(fat_val / (fat_val + musc_val) * 100, 1)
-        else:
-            result[f"seg_fat_{side}"] = fat_val
+        result[f"seg_musc_{side}"] = _num(seg_musc.get(side))
+        result[f"seg_fat_{side}"]  = _num(seg_fat.get(side))
 
     # Metadata auxiliar
     result["_patient_name_detected"] = data.get("patient_name")

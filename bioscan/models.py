@@ -175,6 +175,27 @@ class Measurement(db.Model):
 
     patient = db.relationship("Patient", back_populates="measurements")
 
+    def _seg_fat_as_percent(self, side: str):
+        """
+        Retorna a gordura segmental SEMPRE em %, independente do fabricante.
+        - Tanita: já vem em % → retorna direto
+        - InBody: vem em kg → converte % = gordura / (gordura + musc) × 100
+        """
+        fat_raw  = getattr(self, f"seg_fat_{side}")
+        musc_raw = getattr(self, f"seg_musc_{side}")
+
+        if fat_raw is None:
+            return None
+
+        # InBody armazena seg_fat em kg, precisa converter
+        if self.source and self.source.startswith("inbody"):
+            if musc_raw is None or (fat_raw + musc_raw) <= 0:
+                return None
+            return round(fat_raw / (fat_raw + musc_raw) * 100, 1)
+
+        # Tanita e demais: já em %
+        return fat_raw
+
     def to_dict(self):
         return {
             "id":           self.id,
@@ -215,7 +236,16 @@ class Measurement(db.Model):
                 "left_leg":  self.seg_qual_left_leg,
                 "trunk":     self.seg_qual_trunk,
             },
+            # seg_fat SEMPRE em % — conversão dinâmica para InBody (vem em kg)
             "seg_fat": {
+                "right_arm": self._seg_fat_as_percent("right_arm"),
+                "left_arm":  self._seg_fat_as_percent("left_arm"),
+                "right_leg": self._seg_fat_as_percent("right_leg"),
+                "left_leg":  self._seg_fat_as_percent("left_leg"),
+                "trunk":     self._seg_fat_as_percent("trunk"),
+            },
+            # seg_fat bruto (valores originais como salvos no banco, para auditoria)
+            "seg_fat_raw": {
                 "right_arm": self.seg_fat_right_arm,
                 "left_arm":  self.seg_fat_left_arm,
                 "right_leg": self.seg_fat_right_leg,
