@@ -514,34 +514,43 @@ def import_csv(pid):
 
 # ── PDF IMPORT (via LLM Vision) ──────────────────────────────────────────
 
-@bioscan_bp.post("/patients/<int:pid>/import-pdf")
+@bioscan_bp.post("/patients/<int:pid>/import-file")
+@bioscan_bp.post("/patients/<int:pid>/import-pdf")   # alias legado
 @require_role("doctor")
-def import_pdf(pid):
+def import_file(pid):
     """
-    Importa medição de PDF Tanita ou InBody via Groq Vision.
-    Detecta o fabricante automaticamente e usa o mapeamento correto.
+    Importa medição de arquivo Tanita/InBody via Groq Vision.
+    Aceita PDF (multi-página, lê a 1ª) ou imagem (JPEG/PNG/HEIC/WebP).
+    Detecta o fabricante automaticamente.
+
+    Aceita o arquivo em qualquer um destes campos do form: 'file', 'pdf', 'image'.
     """
-    from .pdf_parser import parse_bioimpedance_pdf
+    from .pdf_parser import parse_bioimpedance_file
 
     db.get_or_404(Patient, pid)
 
-    if "pdf" not in request.files:
-        return jsonify({"error": "Campo 'pdf' não encontrado no form"}), 400
+    # Aceita diferentes nomes de campo para compatibilidade
+    file = request.files.get("file") or request.files.get("pdf") or request.files.get("image")
+    if not file:
+        return jsonify({
+            "error": "Nenhum arquivo enviado (campos aceitos: 'file', 'pdf', 'image')"
+        }), 400
 
-    file = request.files["pdf"]
-    pdf_bytes = file.read()
+    file_bytes = file.read()
+    if not file_bytes:
+        return jsonify({"error": "Arquivo vazio"}), 400
 
-    if not pdf_bytes:
-        return jsonify({"error": "PDF vazio"}), 400
+    # Log do nome original para auditoria/debug
+    original_filename = getattr(file, "filename", "desconhecido")
 
     try:
-        row = parse_bioimpedance_pdf(pdf_bytes)
+        row = parse_bioimpedance_file(file_bytes)
     except RuntimeError as e:
         return jsonify({"error": f"Configuração: {str(e)}"}), 500
     except ValueError as e:
         return jsonify({"error": f"Erro na extração: {str(e)}"}), 422
     except Exception as e:
-        return jsonify({"error": f"Erro ao processar PDF: {str(e)}"}), 500
+        return jsonify({"error": f"Erro ao processar arquivo: {str(e)}"}), 500
 
     measured_at = row.pop("measured_at")
     detected_name = row.pop("_patient_name_detected", None)
@@ -558,8 +567,15 @@ def import_pdf(pid):
             "manufacturer": manufacturer,
         }), 409
 
-    # source reflete o fabricante detectado
-    source = f"{manufacturer}_pdf" if manufacturer in ("tanita", "inbody") else "pdf"
+    # Detecta se foi imagem ou PDF (pelos magic bytes do bytes bruto)
+    is_pdf = file_bytes[:4] == b"%PDF"
+    file_suffix = "pdf" if is_pdf else "img"
+
+    # source reflete fabricante + tipo de arquivo
+    if manufacturer in ("tanita", "inbody"):
+        source = f"{manufacturer}_{file_suffix}"
+    else:
+        source = file_suffix
 
     m = Measurement(patient_id=pid, source=source, measured_at=measured_at)
     _fill_measurement(m, row)
@@ -567,13 +583,15 @@ def import_pdf(pid):
     db.session.flush()
 
     log_action(
-        "measurement.import_pdf",
+        "measurement.import_file",
         entity_type="measurement",
         entity_id=m.id,
         patient_id=pid,
         details={
             "manufacturer": manufacturer,
             "source": source,
+            "file_type": "pdf" if is_pdf else "image",
+            "original_filename": original_filename,
             "measured_at": m.measured_at.isoformat(),
             "detected_name": detected_name,
         },
@@ -586,6 +604,7 @@ def import_pdf(pid):
         "measurement": m.to_dict(),
         "detected_name": detected_name,
         "manufacturer": manufacturer,
+        "file_type": "pdf" if is_pdf else "image",
     }), 201
 
 

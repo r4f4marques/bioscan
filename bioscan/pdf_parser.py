@@ -170,18 +170,93 @@ def pdf_to_base64_image(pdf_bytes: bytes) -> str:
     return base64.b64encode(jpeg_bytes).decode("utf-8")
 
 
-def parse_bioimpedance_pdf(pdf_bytes: bytes) -> dict:
+def image_bytes_to_base64(image_bytes: bytes) -> str:
     """
-    Extrai medição de PDF Tanita ou InBody via LLM com visão.
-    Detecta fabricante automaticamente e retorna dict normalizado.
+    Converte bytes de uma imagem (qualquer formato: JPEG/PNG/HEIC/WebP/etc)
+    para base64 pronto para envio à Groq Vision.
+
+    Pipeline: abre com PIL → redimensiona se >2000px → salva como JPEG q85.
     """
+    from PIL import Image
+
+    # Tenta abrir com PIL (suporta JPEG, PNG, WebP, GIF, BMP, TIFF nativos)
+    try:
+        img = Image.open(io.BytesIO(image_bytes))
+    except Exception:
+        # Pode ser HEIC/HEIF do iPhone — precisa do pillow-heif
+        try:
+            import pillow_heif
+            pillow_heif.register_heif_opener()
+            img = Image.open(io.BytesIO(image_bytes))
+        except ImportError:
+            raise ValueError(
+                "Formato de imagem não suportado. "
+                "Para HEIC (iPhone), instale pillow-heif no servidor."
+            )
+        except Exception as e:
+            raise ValueError(f"Não foi possível abrir a imagem: {e}")
+
+    # Força modo RGB (remove canal alpha de PNGs, converte CMYK, etc)
+    if img.mode != "RGB":
+        img = img.convert("RGB")
+
+    # Redimensiona se exceder MAX_IMAGE_SIDE
+    if max(img.size) > MAX_IMAGE_SIDE:
+        ratio = MAX_IMAGE_SIDE / max(img.size)
+        new_size = (int(img.size[0] * ratio), int(img.size[1] * ratio))
+        img = img.resize(new_size, Image.LANCZOS)
+
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=JPEG_QUALITY, optimize=True)
+    jpeg_bytes = buf.getvalue()
+
+    if len(jpeg_bytes) > MAX_IMAGE_BYTES:
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=65, optimize=True)
+        jpeg_bytes = buf.getvalue()
+
+    return base64.b64encode(jpeg_bytes).decode("utf-8")
+
+
+def detect_file_type(file_bytes: bytes) -> str:
+    """
+    Detecta o tipo do arquivo pelos magic bytes (primeiros bytes).
+    Retorna 'pdf' ou 'image'.
+    """
+    if not file_bytes or len(file_bytes) < 4:
+        raise ValueError("Arquivo vazio ou muito pequeno.")
+
+    # PDF: começa com "%PDF"
+    if file_bytes[:4] == b"%PDF":
+        return "pdf"
+
+    # Imagens: JPEG (FFD8FF), PNG (89504E47), GIF, WebP, HEIC, etc
+    # Como vamos tentar abrir com PIL depois, basta não ser PDF
+    return "image"
+
+
+def parse_bioimpedance_file(file_bytes: bytes) -> dict:
+    """
+    Extrai medição de PDF Tanita/InBody OU imagem (JPEG/PNG/HEIC/etc) via LLM.
+    Detecta formato automaticamente pelos magic bytes.
+    """
+    file_type = detect_file_type(file_bytes)
+
+    if file_type == "pdf":
+        b64_image = pdf_to_base64_image(file_bytes)
+    else:
+        b64_image = image_bytes_to_base64(file_bytes)
+
+    return _extract_from_base64_image(b64_image)
+
+
+def _extract_from_base64_image(b64_image: str) -> dict:
+    """Chama o Groq Vision com a imagem já codificada em base64."""
     from groq import Groq  # lazy import
 
     api_key = os.environ.get("GROQ_API_KEY")
     if not api_key:
         raise RuntimeError("GROQ_API_KEY não configurada.")
-
-    b64_image = pdf_to_base64_image(pdf_bytes)
 
     client = Groq(api_key=api_key)
     completion = client.chat.completions.create(
@@ -210,6 +285,12 @@ def parse_bioimpedance_pdf(pdf_bytes: bytes) -> dict:
         raise ValueError(f"Resposta do LLM não é JSON válido: {e}\nConteúdo: {raw[:500]}")
 
     return _normalize_extraction(data)
+
+
+# Alias de retro-compatibilidade — antes só aceitava PDF
+def parse_bioimpedance_pdf(pdf_bytes: bytes) -> dict:
+    """DEPRECATED: use parse_bioimpedance_file() que aceita PDF e imagens."""
+    return parse_bioimpedance_file(pdf_bytes)
 
 
 def _normalize_extraction(data: dict) -> dict:
