@@ -1571,14 +1571,14 @@ function renderUpload() {
             <div style="font-size:var(--fs-sm);font-weight:500;color:#1a1a18">Arquivo CSV</div>
             <div style="font-size:var(--fs-xs);color:#999;margin-top:3px">Tanita BC-780, 545N, MC-780MA</div>
           </div>
-          <div class="upload-zone" onclick="openPDFPicker()" style="padding:1.5rem">
+          <div class="upload-zone" onclick="openFilePicker()" style="padding:1.5rem">
             <div style="font-size:20px;margin-bottom:.4rem">📑</div>
-            <div style="font-size:var(--fs-sm);font-weight:500;color:#1a1a18">Arquivo PDF</div>
-            <div style="font-size:var(--fs-xs);color:#999;margin-top:3px">Tanita/Bioeasy ou InBody (via IA)</div>
+            <div style="font-size:var(--fs-sm);font-weight:500;color:#1a1a18">PDF ou imagem</div>
+            <div style="font-size:var(--fs-xs);color:#999;margin-top:3px">Tanita ou InBody — PDF, JPG, PNG, HEIC (via IA)</div>
           </div>
         </div>
         <input type="file" id="csvfile" accept=".csv" style="display:none" onchange="uploadCSV(this)">
-        <input type="file" id="pdffile" accept=".pdf" style="display:none" onchange="uploadPDF(this)">
+        <input type="file" id="filefile" accept="application/pdf,image/*,.heic,.heif" style="display:none" onchange="uploadFile(this)">
         <div id="upload-result"></div>
       </div>
 
@@ -1754,29 +1754,34 @@ async function uploadCSV(input) {
   }
 }
 
-function openPDFPicker() {
+function openFilePicker() {
   const result = document.getElementById('upload-result');
   if (!window._uploadPid) {
-    result.innerHTML = '<div class="error-box">Selecione um paciente antes de importar o PDF.</div>';
+    result.innerHTML = '<div class="error-box">Selecione um paciente antes de importar.</div>';
     return;
   }
   result.innerHTML = '';
-  document.getElementById('pdffile').click();
+  document.getElementById('filefile').click();
 }
 
-async function uploadPDF(input) {
+async function uploadFile(input) {
   const file = input.files[0];
   if (!file) return;
   const pid = window._uploadPid;
   const result = document.getElementById('upload-result');
+
+  // Identifica o tipo visualmente para a mensagem de progresso
+  const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
+  const typeLabel = isPdf ? 'PDF' : 'imagem';
+
   result.innerHTML = `<div style="color:#999;font-size:var(--fs-sm);margin-top:.5rem">
-    Processando PDF com IA... isso pode levar 10-20 segundos.
+    Processando ${typeLabel} com IA... isso pode levar 10-20 segundos.
   </div>`;
 
   const form = new FormData();
-  form.append('pdf', file);
+  form.append('file', file);
 
-  const data = await api('POST', `/bioscan/patients/${pid}/import-pdf`, form, true);
+  const data = await api('POST', `/bioscan/patients/${pid}/import-file`, form, true);
   input.value = '';
   if (!data) return;
 
@@ -1788,7 +1793,7 @@ async function uploadPDF(input) {
   if (data.error) {
     let msg = data.error;
     if (data.detected_name) {
-      msg += `<br><small>Nome detectado no PDF: <strong>${data.detected_name}</strong></small>`;
+      msg += `<br><small>Nome detectado no arquivo: <strong>${data.detected_name}</strong></small>`;
     }
     result.innerHTML = `<div class="error-box">${msg}</div>`;
   } else {
@@ -1796,14 +1801,17 @@ async function uploadPDF(input) {
     if (data.manufacturer && data.manufacturer !== 'unknown') {
       details.push(`Fabricante detectado: <strong>${manufLabel}</strong>`);
     }
+    if (data.file_type) {
+      details.push(`Tipo de arquivo: <strong>${data.file_type === 'pdf' ? 'PDF' : 'Imagem'}</strong>`);
+    }
     if (data.detected_name) {
-      details.push(`Nome no PDF: <strong>${data.detected_name}</strong> (confira se corresponde ao paciente selecionado)`);
+      details.push(`Nome no arquivo: <strong>${data.detected_name}</strong> (confira se corresponde ao paciente selecionado)`);
     }
     const infoBox = details.length
       ? `<div class="info-box"><small>${details.join('<br>')}</small></div>`
       : '';
     result.innerHTML = `
-      <div class="success-box">✓ Medição importada do PDF com sucesso!</div>
+      <div class="success-box">✓ Medição importada com sucesso!</div>
       ${infoBox}`;
     await loadPatientMeasurements(pid);
   }
