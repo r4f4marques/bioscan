@@ -459,6 +459,84 @@ def delete_measurement(pid, mid):
     return jsonify({"deleted": mid})
 
 
+@bioscan_bp.patch("/patients/<int:pid>/measurements/<int:mid>")
+@require_role("doctor")
+def update_measurement(pid, mid):
+    """
+    Edita campos de uma medição existente.
+    Aceita qualquer campo listado em MEASUREMENT_FIELDS, mais 'measured_at' (ISO date).
+    Registra as mudanças no log de auditoria.
+    """
+    m = Measurement.query.filter_by(id=mid, patient_id=pid).first_or_404()
+    data = request.get_json(silent=True) or {}
+
+    # Rastreia mudanças para o log de auditoria
+    changed_fields = {}
+
+    def track(field, new_value, old_value):
+        # Normaliza floats para comparação justa
+        def norm(v):
+            if isinstance(v, float):
+                return round(v, 4)
+            return v
+        if norm(new_value) != norm(old_value):
+            changed_fields[field] = {"from": old_value, "to": new_value}
+
+    # Campo especial: data da medição
+    if "measured_at" in data and data["measured_at"]:
+        try:
+            # Aceita "YYYY-MM-DD" ou ISO completo
+            raw = data["measured_at"]
+            if "T" in raw:
+                new_dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            else:
+                new_dt = datetime.strptime(raw, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            # Normaliza para UTC se tiver tz; senão assume UTC
+            if new_dt.tzinfo is None:
+                new_dt = new_dt.replace(tzinfo=timezone.utc)
+
+            if new_dt != m.measured_at:
+                # Verifica se outra medição do mesmo paciente já tem essa data
+                duplicate = Measurement.query.filter(
+                    Measurement.patient_id == pid,
+                    Measurement.measured_at == new_dt,
+                    Measurement.id != m.id,
+                ).first()
+                if duplicate:
+                    return jsonify({
+                        "error": f"Já existe outra medição neste paciente em {new_dt.strftime('%d/%m/%Y %H:%M')}",
+                    }), 409
+                track("measured_at", new_dt.isoformat(), m.measured_at.isoformat())
+                m.measured_at = new_dt
+        except (ValueError, TypeError) as e:
+            return jsonify({"error": f"Formato de data inválido: {e}"}), 400
+
+    # Demais campos numéricos
+    for field in MEASUREMENT_FIELDS:
+        if field in data:
+            new_val = data[field]
+            # Converte string vazia para None (útil ao "apagar" um valor no editor)
+            if new_val == "":
+                new_val = None
+            old_val = getattr(m, field)
+            track(field, new_val, old_val)
+            setattr(m, field, new_val)
+
+    if not changed_fields:
+        return jsonify(m.to_dict())  # nada mudou, não loga
+
+    log_action(
+        "measurement.update",
+        entity_type="measurement",
+        entity_id=m.id,
+        patient_id=pid,
+        details={"changes": changed_fields},
+    )
+
+    db.session.commit()
+    return jsonify(m.to_dict())
+
+
 # ── CSV IMPORT ────────────────────────────────────────────────────────────
 
 @bioscan_bp.post("/patients/<int:pid>/import-csv")
