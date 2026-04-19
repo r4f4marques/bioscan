@@ -592,6 +592,127 @@ def import_csv(pid):
 
 # ── PDF IMPORT (via LLM Vision) ──────────────────────────────────────────
 
+@bioscan_bp.post("/patients/<int:pid>/parse-file")
+@require_role("doctor")
+def parse_file_preview(pid):
+    """
+    Extrai dados do arquivo via Groq Vision SEM salvar no banco.
+    Usado para mostrar preview editável antes do usuário confirmar.
+    Retorna os campos extraídos no formato do Measurement.
+    """
+    from .pdf_parser import parse_bioimpedance_file
+
+    db.get_or_404(Patient, pid)
+
+    file = request.files.get("file") or request.files.get("pdf") or request.files.get("image")
+    if not file:
+        return jsonify({"error": "Nenhum arquivo enviado"}), 400
+
+    file_bytes = file.read()
+    if not file_bytes:
+        return jsonify({"error": "Arquivo vazio"}), 400
+
+    original_filename = getattr(file, "filename", "desconhecido")
+
+    try:
+        row = parse_bioimpedance_file(file_bytes)
+    except RuntimeError as e:
+        return jsonify({"error": f"Configuração: {str(e)}"}), 500
+    except ValueError as e:
+        return jsonify({"error": f"Erro na extração: {str(e)}"}), 422
+    except Exception as e:
+        return jsonify({"error": f"Erro ao processar arquivo: {str(e)}"}), 500
+
+    measured_at = row.pop("measured_at")
+    detected_name = row.pop("_patient_name_detected", None)
+    manufacturer = row.pop("_manufacturer", "unknown")
+
+    # Verifica duplicata (alerta, mas não bloqueia — usuário pode editar a data)
+    duplicate_warning = None
+    exists = Measurement.query.filter_by(
+        patient_id=pid, measured_at=measured_at).first()
+    if exists:
+        duplicate_warning = (
+            f"Já existe medição para {measured_at.strftime('%d/%m/%Y')}. "
+            f"Ao salvar, altere a data ou a medição existente será mantida."
+        )
+
+    is_pdf = file_bytes[:4] == b"%PDF"
+    source = f"{manufacturer}_{'pdf' if is_pdf else 'img'}" if manufacturer in ("tanita", "inbody") else ("pdf" if is_pdf else "img")
+
+    return jsonify({
+        "extracted": {
+            **row,
+            "measured_at": measured_at.isoformat(),
+            "source": source,
+        },
+        "manufacturer": manufacturer,
+        "detected_name": detected_name,
+        "file_type": "pdf" if is_pdf else "image",
+        "original_filename": original_filename,
+        "duplicate_warning": duplicate_warning,
+    }), 200
+
+
+@bioscan_bp.post("/patients/<int:pid>/save-measurement")
+@require_role("doctor")
+def save_measurement(pid):
+    """
+    Salva uma medição a partir de dados já validados pelo usuário.
+    Usado após preview do parse-file (quando usuário confirma).
+    """
+    db.get_or_404(Patient, pid)
+    data = request.get_json(silent=True) or {}
+
+    # Data da medição
+    raw_date = data.get("measured_at")
+    if not raw_date:
+        return jsonify({"error": "Campo 'measured_at' obrigatório"}), 400
+
+    try:
+        if "T" in raw_date:
+            measured_at = datetime.fromisoformat(raw_date.replace("Z", "+00:00"))
+        else:
+            measured_at = datetime.strptime(raw_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        if measured_at.tzinfo is None:
+            measured_at = measured_at.replace(tzinfo=timezone.utc)
+    except (ValueError, TypeError) as e:
+        return jsonify({"error": f"Formato de data inválido: {e}"}), 400
+
+    # Verifica duplicata
+    exists = Measurement.query.filter_by(
+        patient_id=pid, measured_at=measured_at).first()
+    if exists:
+        return jsonify({
+            "error": f"Já existe medição para {measured_at.strftime('%d/%m/%Y %H:%M')}",
+            "measurement_id": exists.id,
+        }), 409
+
+    source = data.get("source", "manual")
+    m = Measurement(patient_id=pid, source=source, measured_at=measured_at)
+    _fill_measurement(m, data)
+    db.session.add(m)
+    db.session.flush()
+
+    log_action(
+        "measurement.import_confirmed",
+        entity_type="measurement",
+        entity_id=m.id,
+        patient_id=pid,
+        details={
+            "source": source,
+            "measured_at": m.measured_at.isoformat(),
+            "was_edited_in_preview": bool(data.get("_edited_in_preview")),
+        },
+    )
+
+    db.session.commit()
+    return jsonify({
+        "inserted": 1,
+        "measurement": m.to_dict(),
+    }), 201
+
+
 @bioscan_bp.post("/patients/<int:pid>/import-file")
 @bioscan_bp.post("/patients/<int:pid>/import-pdf")   # alias legado
 @require_role("doctor")
