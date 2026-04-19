@@ -720,6 +720,7 @@ async function deletePatient(id, name) {
 
 async function selectPatient(id) {
   currentManufacturer = 'all';  // reseta filtro ao mudar de paciente
+  evoVisible = { weight: true, fat: true, muscle: true, visceral: false, meta: false, bmr: false };  // reset toggles
   const data = await api('GET', `/bioscan/patients/${id}`);
   if (data) showPatient(data);
 }
@@ -1138,17 +1139,18 @@ function renderEvolution() {
     </div>`;
 
   const chartCards = ms.length >= 2 ? `
-    <div class="grid grid-2">
-      <div class="card"><div class="card-title">Peso <small>${ms.length} medições</small></div><div class="chart-container"><canvas id="ch-weight"></canvas></div></div>
-      <div class="card"><div class="card-title">Gordura corporal</div><div class="chart-container"><canvas id="ch-fat"></canvas></div></div>
-    </div>
-    <div class="grid grid-2">
-      <div class="card"><div class="card-title">Massa muscular / magra</div><div class="chart-container"><canvas id="ch-muscle"></canvas></div></div>
-      <div class="card"><div class="card-title">Gordura visceral</div><div class="chart-container"><canvas id="ch-visc"></canvas></div></div>
-    </div>
-    <div class="grid grid-2">
-      <div class="card"><div class="card-title">Idade metabólica</div><div class="chart-container"><canvas id="ch-meta"></canvas></div></div>
-      <div class="card"><div class="card-title">Metabolismo basal</div><div class="chart-container"><canvas id="ch-bmr"></canvas></div></div>
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px;margin-bottom:12px">
+        <div class="card-title" style="margin:0">Evolução temporal <small>${ms.length} medições · passe o mouse nos pontos</small></div>
+      </div>
+      <div id="evo-chips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px"></div>
+      <div style="position:relative;height:360px">
+        <canvas id="ch-evolution"></canvas>
+      </div>
+      <div style="margin-top:12px;padding-top:12px;border-top:0.5px solid rgba(0,0,0,0.08);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+        <div id="evo-caption" style="font-size:var(--fs-xs);color:#999"></div>
+        <div id="evo-legend-mfr" style="display:flex;gap:12px;font-size:var(--fs-xs);color:#666"></div>
+      </div>
     </div>` : `
     <div class="card" style="text-align:center;color:#bbb;padding:2rem">
       Necessárias pelo menos 2 medições para gerar gráficos evolutivos.<br>
@@ -1164,7 +1166,7 @@ function renderEvolution() {
       </table>
     </div>`;
 
-  if (ms.length >= 2) renderCharts(ms);
+  if (ms.length >= 2) renderEvolutionChart(ms, currentPatient);
 }
 
 
@@ -1343,37 +1345,214 @@ function renderObesityBars(m, patient) {
     </div>`;
 }
 
-function renderCharts(ms) {
-  const labels = ms.map(m => fmtDateBR(m.measured_at));
+// ── GRÁFICO DE EVOLUÇÃO UNIFICADO ────────────────────────────────────────
 
-  const base = {
-    type: 'line',
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: false } },
-      scales: {
-        x: { grid: { display: false }, ticks: { font: { size: 10 }, color: '#999' } },
-        y: { grid: { color: '#f0f0f0' }, ticks: { font: { size: 10 }, color: '#999' } }
-      },
-      elements: { point: { radius: 3, hoverRadius: 5 }, line: { tension: 0.3, borderWidth: 2 } }
+// Estado dos toggles do gráfico unificado (persiste durante a sessão)
+let evoVisible = { weight: true, fat: true, muscle: true, visceral: false, meta: false, bmr: false };
+
+// Definição das séries disponíveis
+const EVO_SERIES = [
+  { key: 'weight',   label: 'Peso',        unit: 'kg', axis: 'yLeft',  color: '#1a6fa8',
+    getter: m => m.weight,
+    getRefBand: (p) => {
+      if (!p.height_cm) return null;
+      const h = p.height_cm / 100;
+      return { min: 18.5 * h * h, max: 24.9 * h * h };
+    }
+  },
+  { key: 'fat',      label: 'Gordura %',   unit: '%',  axis: 'yRight', color: '#e67e22',
+    getter: m => m.fat_pct,
+    getRefBand: (p) => {
+      const r = getReferenceBands(p);
+      return { min: r.fatMin, max: r.fatMax };
+    }
+  },
+  { key: 'muscle',   label: 'Músculo',     unit: 'kg', axis: 'yLeft',  color: '#2d6a1f',
+    getter: m => m.muscle_kg ?? m.ffm_kg,
+    getRefBand: (p) => null  // muito variável por indivíduo/medição
+  },
+  { key: 'visceral', label: 'Visceral',    unit: '',   axis: 'yLeft',  color: '#c0392b',
+    getter: m => m.visceral,
+    getRefBand: () => ({ min: 0, max: 9 })  // ≤9 saudável
+  },
+  { key: 'meta',     label: 'Id. metab.',  unit: 'anos', axis: 'yLeft', color: '#8e44ad',
+    getter: m => m.meta_age,
+    getRefBand: (p) => p.age ? { min: 0, max: p.age } : null
+  },
+  { key: 'bmr',      label: 'BMR',         unit: 'kcal', axis: 'yLeft', color: '#16a085',
+    getter: m => m.bmr,
+    getRefBand: () => null
+  },
+];
+
+function renderEvolutionChart(ms, patient) {
+  // Renderiza os chips de toggle
+  const chipsEl = document.getElementById('evo-chips');
+  if (chipsEl) {
+    chipsEl.innerHTML = EVO_SERIES.map(s => {
+      // Detecta se há dados disponíveis para esta série
+      const hasData = ms.some(m => s.getter(m) != null);
+      if (!hasData) return '';
+
+      const isOn = evoVisible[s.key];
+      const style = isOn
+        ? `border:1px solid ${s.color};background:${s.color};color:#fff`
+        : `border:1px solid rgba(0,0,0,0.12);background:#fff;color:#999`;
+      return `<button onclick="toggleEvoSeries('${s.key}')"
+        style="padding:5px 12px;font-size:var(--fs-sm);border-radius:16px;cursor:pointer;${style}">
+        ${isOn ? '●' : '○'} ${s.label}
+      </button>`;
+    }).join('');
+  }
+
+  // Detecta fabricantes presentes para legenda no rodapé
+  const mfrs = Array.from(new Set(ms.map(manufacturerOf).filter(x => x !== 'other' && x !== 'manual')));
+  const legendEl = document.getElementById('evo-legend-mfr');
+  if (legendEl) {
+    if (mfrs.length >= 2) {
+      legendEl.innerHTML = mfrs.map(m =>
+        m === 'tanita' ? '● Tanita' :
+        m === 'inbody' ? '■ InBody' : `◆ ${m}`
+      ).join(' &nbsp; ');
+    } else {
+      legendEl.innerHTML = '';
+    }
+  }
+
+  // Legenda de referências no rodapé
+  const captionEl = document.getElementById('evo-caption');
+  if (captionEl) {
+    const refNote = patient.age != null
+      ? `Faixas de referência ACSM/OMS ajustadas para ${patient.age} anos, ${patient.sex === 'F' ? 'feminino' : 'masculino'}`
+      : 'Faixas de referência (ajuste por idade indisponível)';
+    captionEl.textContent = refNote + '. Clique nos chips para alternar séries.';
+  }
+
+  // Monta datasets
+  const labels = ms.map(m => fmtDateBR(m.measured_at));
+  const sources = ms.map(manufacturerOf);
+  const makePointStyle = () => sources.map(s => s === 'inbody' ? 'rect' : 'circle');
+
+  const activeSeries = EVO_SERIES.filter(s => evoVisible[s.key] && ms.some(m => s.getter(m) != null));
+
+  const datasets = activeSeries.map(s => ({
+    label: `${s.label}${s.unit ? ' (' + s.unit + ')' : ''}`,
+    data: ms.map(s.getter),
+    borderColor: s.color,
+    backgroundColor: s.color + '15',
+    yAxisID: s.axis,
+    tension: 0.3,
+    borderWidth: 2,
+    pointRadius: 5,
+    pointHoverRadius: 8,
+    pointStyle: makePointStyle(),
+    pointBackgroundColor: s.color,
+    pointBorderColor: '#fff',
+    pointBorderWidth: 2,
+    spanGaps: true,
+    _seriesKey: s.key,
+    _unit: s.unit,
+  }));
+
+  // Plugin de faixas de referência (apenas para séries ativas com faixa definida)
+  const refBandPlugin = {
+    id: 'refBands',
+    beforeDatasetsDraw(chart) {
+      const { ctx, chartArea, scales } = chart;
+      activeSeries.forEach(s => {
+        const band = s.getRefBand(patient);
+        if (!band) return;
+        const scale = scales[s.axis];
+        if (!scale) return;
+
+        const yTop = scale.getPixelForValue(band.max);
+        const yBot = scale.getPixelForValue(band.min);
+        const [top, bot] = yTop < yBot ? [yTop, yBot] : [yBot, yTop];
+
+        // Clip to chart area
+        const y1 = Math.max(top, chartArea.top);
+        const y2 = Math.min(bot, chartArea.bottom);
+        if (y2 <= y1) return;
+
+        // Faixa de fundo na cor da série (muito leve)
+        ctx.fillStyle = s.color + '0d';  // ~5% alpha
+        ctx.fillRect(chartArea.left, y1, chartArea.right - chartArea.left, y2 - y1);
+      });
     }
   };
 
-  const mkChart = (id, values, color) => {
-    const ctx = document.getElementById(id);
-    if (!ctx) return;
-    charts[id] = new Chart(ctx, {
-      ...base,
-      data: { labels, datasets: [{ data: values, borderColor: color, backgroundColor: color + '20', fill: true }] }
-    });
-  };
+  // Cria/recria o chart
+  const canvas = document.getElementById('ch-evolution');
+  if (!canvas) return;
 
-  mkChart('ch-weight', ms.map(m => m.weight),    '#1a6fa8');
-  mkChart('ch-fat',    ms.map(m => m.fat_pct),   '#e67e22');
-  mkChart('ch-muscle', ms.map(m => m.muscle_kg ?? m.ffm_kg), '#2d6a1f');
-  mkChart('ch-visc',   ms.map(m => m.visceral),  '#c0392b');
-  mkChart('ch-meta',   ms.map(m => m.meta_age),  '#8e44ad');
-  mkChart('ch-bmr',    ms.map(m => m.bmr),       '#16a085');
+  if (charts['ch-evolution']) {
+    charts['ch-evolution'].destroy();
+  }
+
+  // Quais eixos estão em uso?
+  const usedAxes = new Set(activeSeries.map(s => s.axis));
+  const scales = {
+    x: { grid: { display: false }, ticks: { font: { size: 11 }, color: '#999' } },
+  };
+  if (usedAxes.has('yLeft')) {
+    scales.yLeft = {
+      type: 'linear', position: 'left',
+      grid: { color: '#f0f0f0' },
+      ticks: { font: { size: 11 }, color: '#999' },
+      title: { display: true, text: activeSeries.find(s => s.axis === 'yLeft')?.unit || '', font: { size: 11 }, color: '#999' }
+    };
+  }
+  if (usedAxes.has('yRight')) {
+    scales.yRight = {
+      type: 'linear', position: 'right',
+      grid: { display: false },
+      ticks: { font: { size: 11 }, color: '#999' },
+      title: { display: true, text: '%', font: { size: 11 }, color: '#999' }
+    };
+  }
+
+  charts['ch-evolution'] = new Chart(canvas, {
+    type: 'line',
+    data: { labels, datasets },
+    plugins: [refBandPlugin],
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: 'rgba(26,26,24,0.96)',
+          titleColor: '#fff', bodyColor: '#fff', padding: 10,
+          titleFont: { size: 12, weight: '500' },
+          bodyFont: { size: 13 },
+          cornerRadius: 6, displayColors: true, boxPadding: 4,
+          callbacks: {
+            afterTitle: (items) => {
+              const i = items[0].dataIndex;
+              const src = sources[i];
+              if (src === 'tanita') return '● Tanita';
+              if (src === 'inbody') return '■ InBody';
+              if (src === 'manual') return 'Entrada manual';
+              return '';
+            },
+            label: (ctx) => {
+              const ds = ctx.dataset;
+              const v = ctx.parsed.y;
+              if (v == null) return null;
+              const decimals = ds._unit === 'kcal' || ds._seriesKey === 'meta' ? 0 : ds._seriesKey === 'muscle' ? 2 : 1;
+              return `${ds.label}: ${v.toFixed(decimals)}`;
+            }
+          }
+        }
+      },
+      scales
+    }
+  });
+}
+
+function toggleEvoSeries(key) {
+  evoVisible[key] = !evoVisible[key];
+  renderEvolution();  // re-renderiza toda a aba
 }
 
 // ── SEGMENTS — Layout Tanita dual (massa magra + gordura) ────────────────
