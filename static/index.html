@@ -417,6 +417,7 @@ function renderAuditLog(logs) {
     'measurement.import_csv':  { icon: '📄', label: 'CSV importado',           color: '#1a6fa8' },
     'measurement.import_pdf':  { icon: '📑', label: 'PDF importado',           color: '#16a085' },
     'measurement.import_file': { icon: '📑', label: 'Arquivo importado',       color: '#16a085' },
+    'measurement.import_confirmed': { icon: '📑', label: 'Importação confirmada', color: '#16a085' },
   };
 
   const formatDate = (iso) => {
@@ -1957,7 +1958,6 @@ async function uploadFile(input) {
   const pid = window._uploadPid;
   const result = document.getElementById('upload-result');
 
-  // Identifica o tipo visualmente para a mensagem de progresso
   const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
   const typeLabel = isPdf ? 'PDF' : 'imagem';
 
@@ -1968,40 +1968,211 @@ async function uploadFile(input) {
   const form = new FormData();
   form.append('file', file);
 
-  const data = await api('POST', `/bioscan/patients/${pid}/import-file`, form, true);
+  // Extrai os dados mas NÃO salva — abre tela de revisão editável
+  const data = await api('POST', `/bioscan/patients/${pid}/parse-file`, form, true);
   input.value = '';
   if (!data) return;
-
-  const manufLabel = {
-    tanita: 'Tanita/Bioeasy',
-    inbody: 'InBody',
-  }[data.manufacturer] || 'desconhecido';
 
   if (data.error) {
     let msg = data.error;
     if (data.detected_name) {
-      msg += `<br><small>Nome detectado no arquivo: <strong>${data.detected_name}</strong></small>`;
+      msg += `<br><small>Nome detectado: <strong>${data.detected_name}</strong></small>`;
     }
     result.innerHTML = `<div class="error-box">${msg}</div>`;
-  } else {
-    const details = [];
-    if (data.manufacturer && data.manufacturer !== 'unknown') {
-      details.push(`Fabricante detectado: <strong>${manufLabel}</strong>`);
-    }
-    if (data.file_type) {
-      details.push(`Tipo de arquivo: <strong>${data.file_type === 'pdf' ? 'PDF' : 'Imagem'}</strong>`);
-    }
-    if (data.detected_name) {
-      details.push(`Nome no arquivo: <strong>${data.detected_name}</strong> (confira se corresponde ao paciente selecionado)`);
-    }
-    const infoBox = details.length
-      ? `<div class="info-box"><small>${details.join('<br>')}</small></div>`
-      : '';
-    result.innerHTML = `
-      <div class="success-box">✓ Medição importada com sucesso!</div>
-      ${infoBox}`;
-    await loadPatientMeasurements(pid);
+    return;
   }
+
+  // Busca o paciente para passar ao editor
+  const patient = await api('GET', `/bioscan/patients/${pid}`);
+  if (!patient) return;
+
+  // Abre tela de preview editável com os dados extraídos
+  openImportPreview(patient, data);
+}
+
+// ── PREVIEW EDITÁVEL DE IMPORTAÇÃO ────────────────────────────────────────
+
+function openImportPreview(patient, parseResult) {
+  // Configura estado de edição com os dados extraídos (ainda não salvos)
+  currentPatient = patient;
+  editingMeasurement = { ...parseResult.extracted };
+  editingPid = patient.id;
+  editingOriginalId = null;  // null indica que é uma NOVA medição
+
+  // Guarda metadata para mostrar no topo do editor
+  window._importMeta = {
+    manufacturer: parseResult.manufacturer,
+    detected_name: parseResult.detected_name,
+    file_type: parseResult.file_type,
+    original_filename: parseResult.original_filename,
+    duplicate_warning: parseResult.duplicate_warning,
+  };
+
+  renderImportPreviewEditor(patient);
+}
+
+function renderImportPreviewEditor(patient) {
+  destroyCharts();
+  setNav(null);
+  document.getElementById('topbar-title').textContent = 'Revisar medição importada';
+  document.getElementById('topbar-actions').innerHTML = `
+    <button class="btn" onclick="cancelImportPreview()">← Cancelar</button>
+    <button class="btn btn-primary" onclick="confirmImportPreview()">✓ Confirmar e salvar</button>`;
+
+  const meta = window._importMeta || {};
+  const m = editingMeasurement;
+  const dateValue = m.measured_at ? m.measured_at.substring(0, 10) : '';
+
+  const manufLabel = {
+    tanita: 'Tanita/Bioeasy',
+    inbody: 'InBody',
+  }[meta.manufacturer] || 'desconhecido';
+
+  const principalHTML = EDIT_GROUPS[0].fields.map(f => rowForField(f)).join('');
+  const additionalHTML = EDIT_GROUPS[1].fields.map(f => rowForField(f)).join('');
+
+  const segmentalHTML = SEGMENT_KEYS.map(s => `
+    <tr style="border-bottom:0.5px solid #f0f0f0">
+      <td style="padding:6px 4px;color:#666">${s.label}</td>
+      <td style="padding:4px">
+        <input type="number" value="${m['seg_musc_' + s.key] ?? ''}" step="0.01"
+          oninput="updateEditField('seg_musc_${s.key}', this.value)"
+          style="width:100%;padding:4px 6px;border:1px solid #ddd;border-radius:4px;font-size:var(--fs-xs)">
+      </td>
+      <td style="padding:4px">
+        <input type="number" value="${m['seg_fat_' + s.key] ?? ''}" step="0.1"
+          oninput="updateEditField('seg_fat_${s.key}', this.value)"
+          style="width:100%;padding:4px 6px;border:1px solid #ddd;border-radius:4px;font-size:var(--fs-xs)">
+      </td>
+      <td style="padding:4px">
+        <input type="number" value="${m['seg_qual_' + s.key] ?? ''}" step="1"
+          oninput="updateEditField('seg_qual_${s.key}', this.value)"
+          style="width:100%;padding:4px 6px;border:1px solid #ddd;border-radius:4px;font-size:var(--fs-xs)">
+      </td>
+    </tr>
+  `).join('');
+
+  // Box de metadata detectada
+  const metaBox = `
+    <div class="card" style="padding:1rem 1.25rem;margin-bottom:1rem;background:#f0f4ff;border-color:#c5d8f4">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px">
+        <div>
+          <div style="font-size:var(--fs-sm);font-weight:500;color:#1a4fa8;margin-bottom:4px">
+            Dados extraídos pela IA — revise antes de salvar
+          </div>
+          <div style="font-size:var(--fs-xs);color:#666;line-height:1.6">
+            Paciente: <strong>${patient.name}</strong> ·
+            Fabricante: <strong>${manufLabel}</strong> ·
+            Tipo: <strong>${meta.file_type === 'pdf' ? 'PDF' : 'Imagem'}</strong>
+            ${meta.detected_name ? `<br>Nome no arquivo: <strong>${meta.detected_name}</strong> (confira se corresponde ao paciente selecionado)` : ''}
+          </div>
+        </div>
+      </div>
+      ${meta.duplicate_warning ? `
+        <div style="margin-top:10px;padding:8px 12px;background:#fef3e0;border-radius:6px;font-size:var(--fs-xs);color:#b07410;line-height:1.4">
+          ⚠ ${meta.duplicate_warning}
+        </div>` : ''}
+    </div>`;
+
+  document.getElementById('content').innerHTML = metaBox + `
+    <div class="grid grid-2" style="gap:16px">
+      <div>
+        <div class="card">
+          <div class="card-title">Dados da medição</div>
+
+          <table style="width:100%;font-size:var(--fs-sm);border-collapse:collapse">
+            <tr style="border-bottom:0.5px solid #f0f0f0">
+              <td style="padding:8px 0;color:#666;width:45%">Data da medição</td>
+              <td style="padding:8px 0">
+                <input type="date" value="${dateValue}"
+                  oninput="updateEditField('measured_at_date', this.value)"
+                  style="width:100%;padding:6px 8px;border:1px solid #ddd;border-radius:6px;font-size:var(--fs-sm)">
+              </td>
+            </tr>
+            ${principalHTML}
+          </table>
+
+          <details style="margin-top:12px">
+            <summary style="font-size:var(--fs-sm);font-weight:500;cursor:pointer;padding:8px 0">
+              ▸ Parâmetros adicionais (${EDIT_GROUPS[1].fields.length} campos)
+            </summary>
+            <table style="width:100%;font-size:var(--fs-sm);border-collapse:collapse;margin-top:8px">
+              ${additionalHTML}
+            </table>
+          </details>
+
+          <details style="margin-top:8px">
+            <summary style="font-size:var(--fs-sm);font-weight:500;cursor:pointer;padding:8px 0">
+              ▸ Segmentais (5 segmentos × 3 dados)
+            </summary>
+            <table style="width:100%;font-size:var(--fs-xs);border-collapse:collapse;margin-top:8px">
+              <thead>
+                <tr style="border-bottom:0.5px solid #ddd">
+                  <th style="text-align:left;padding:6px 4px;color:#999;font-weight:500">Segmento</th>
+                  <th style="padding:6px 4px;color:#999;font-weight:500">Músculo (kg)</th>
+                  <th style="padding:6px 4px;color:#999;font-weight:500">Gordura (%)</th>
+                  <th style="padding:6px 4px;color:#999;font-weight:500">Qualidade</th>
+                </tr>
+              </thead>
+              <tbody>${segmentalHTML}</tbody>
+            </table>
+          </details>
+        </div>
+      </div>
+
+      <div>
+        <div class="card">
+          <div class="card-title">Pré-visualização</div>
+          <div id="edit-preview">${renderEditPreview(patient)}</div>
+          <div class="info-box" style="margin-top:12px">
+            <small>Compare os valores com o arquivo original. Confirme ao final para salvar a medição.</small>
+          </div>
+        </div>
+      </div>
+    </div>`;
+}
+
+function cancelImportPreview() {
+  if (!confirm('Descartar a medição importada?\n\nOs dados extraídos serão perdidos.')) return;
+  editingMeasurement = null;
+  editingPid = null;
+  window._importMeta = null;
+  showScreen('upload');
+}
+
+async function confirmImportPreview() {
+  const pid = editingPid;
+  const payload = { ...editingMeasurement };
+
+  // Marca que houve revisão no preview (mesmo sem edição explícita, passou pelo fluxo)
+  payload._edited_in_preview = true;
+
+  const result = await api('POST', `/bioscan/patients/${pid}/save-measurement`, payload);
+
+  if (!result) return;
+
+  if (result.error) {
+    alert('Erro ao salvar: ' + result.error);
+    return;
+  }
+
+  // Sucesso — volta para tela Importar com feedback
+  editingMeasurement = null;
+  editingPid = null;
+  window._importMeta = null;
+  showScreen('upload');
+
+  // Pequeno delay para garantir que a tela renderizou
+  setTimeout(() => {
+    const resEl = document.getElementById('upload-result');
+    if (resEl) {
+      resEl.innerHTML = `<div class="success-box">✓ Medição salva com sucesso após revisão!</div>`;
+    }
+    // Se o paciente ainda está selecionado, recarrega a lista
+    if (window._uploadPid === pid) {
+      loadPatientMeasurements(pid);
+    }
+  }, 100);
 }
 
 // ── EDITOR DE MEDIÇÃO ─────────────────────────────────────────────────────
