@@ -412,9 +412,11 @@ function renderAuditLog(logs) {
     'patient.update':          { icon: '✎',  label: 'Cadastro editado',        color: '#1a6fa8' },
     'patient.delete':          { icon: '🗑',  label: 'Paciente excluído',       color: '#c0392b' },
     'measurement.create':      { icon: '➕',  label: 'Medição adicionada',      color: '#2d6a1f' },
+    'measurement.update':      { icon: '✎',  label: 'Medição editada',         color: '#1a6fa8' },
     'measurement.delete':      { icon: '✕',  label: 'Medição excluída',        color: '#c0392b' },
     'measurement.import_csv':  { icon: '📄', label: 'CSV importado',           color: '#1a6fa8' },
     'measurement.import_pdf':  { icon: '📑', label: 'PDF importado',           color: '#16a085' },
+    'measurement.import_file': { icon: '📑', label: 'Arquivo importado',       color: '#16a085' },
   };
 
   const formatDate = (iso) => {
@@ -429,7 +431,7 @@ function renderAuditLog(logs) {
     if (!details) return '';
 
     // Renderização customizada por tipo de ação
-    if (action === 'patient.update' && details.changes) {
+    if ((action === 'patient.update' || action === 'measurement.update') && details.changes) {
       const changes = Object.entries(details.changes).map(([field, vals]) => {
         const fmt = (v) => v == null || v === '' ? '(vazio)' : v;
         return `<div style="margin-top:4px"><strong>${field}:</strong> ${fmt(vals.from)} → ${fmt(vals.to)}</div>`;
@@ -1122,6 +1124,10 @@ function renderEvolution() {
     <td>${m.visceral != null ? `<span class="badge ${viscStatus(m.visceral)}">${m.visceral}</span>` : '—'}</td>
     <td>${m.meta_age != null ? m.meta_age + ' anos' : '—'}</td>
     <td>${m.bmr != null ? m.bmr.toFixed(0) + ' kcal' : '—'}</td>
+    ${isDoctor ? `<td style="text-align:right;white-space:nowrap">
+      <button class="btn" style="padding:3px 8px;font-size:var(--fs-xs)"
+        onclick="editMeasurement(${currentPatient.id}, ${m.id})" title="Editar">✎</button>
+    </td>` : ''}
   </tr>`).join('');
 
   // Gráficos InBody-style (sempre aparecem na última medição)
@@ -1161,7 +1167,7 @@ function renderEvolution() {
     <div class="card">
       <div class="card-title">Histórico de medições <small>${ms.length} registro(s)</small></div>
       <table class="evo-tbl">
-        <thead><tr><th>Data</th><th>Peso</th><th>Gordura</th><th>Músculo</th><th>Visceral</th><th>Id. met.</th><th>BMR</th></tr></thead>
+        <thead><tr><th>Data</th><th>Peso</th><th>Gordura</th><th>Músculo</th><th>Visceral</th><th>Id. met.</th><th>BMR</th>${isDoctor ? '<th></th>' : ''}</tr></thead>
         <tbody>${rows}</tbody>
       </table>
     </div>`;
@@ -1876,9 +1882,11 @@ async function loadPatientMeasurements(pid) {
             <td>${m.fat_pct ? m.fat_pct.toFixed(1) + '%' : '—'}</td>
             <td>${m.muscle_kg ? m.muscle_kg.toFixed(2) + ' kg' : '—'}</td>
             <td>${m.visceral != null ? m.visceral : '—'}</td>
-            <td style="text-align:right">
+            <td style="text-align:right;white-space:nowrap">
+              <button class="btn" style="padding:3px 8px;font-size:var(--fs-xs);margin-right:4px"
+                onclick="editMeasurement(${pid}, ${m.id})" title="Editar">✎</button>
               <button class="btn" style="color:#c0392b;padding:3px 8px;font-size:var(--fs-xs)"
-                onclick="deleteMeasurement(${pid}, ${m.id}, '${display}')">✕</button>
+                onclick="deleteMeasurement(${pid}, ${m.id}, '${display}')" title="Excluir">✕</button>
             </td>
           </tr>`;
         }).join('')}
@@ -1993,6 +2001,275 @@ async function uploadFile(input) {
       <div class="success-box">✓ Medição importada com sucesso!</div>
       ${infoBox}`;
     await loadPatientMeasurements(pid);
+  }
+}
+
+// ── EDITOR DE MEDIÇÃO ─────────────────────────────────────────────────────
+
+let editingMeasurement = null;     // cópia local da medição em edição
+let editingPid = null;
+let editingOriginalId = null;
+
+// Grupos de campos para a interface do editor
+const EDIT_GROUPS = [
+  {
+    title: 'Principais',
+    fields: [
+      { key: 'weight',          label: 'Peso',              unit: 'kg',    step: 0.1 },
+      { key: 'bmi',             label: 'IMC',               unit: 'kg/m²', step: 0.1 },
+      { key: 'fat_pct',         label: 'Gordura corporal',  unit: '%',     step: 0.1 },
+      { key: 'visceral',        label: 'Gordura visceral',  unit: '',      step: 0.1 },
+      { key: 'muscle_kg',       label: 'Massa muscular',    unit: 'kg',    step: 0.01 },
+      { key: 'muscle_quality',  label: 'Qualidade muscular', unit: '',     step: 1 },
+      { key: 'bone_kg',         label: 'Massa óssea',       unit: 'kg',    step: 0.01 },
+    ],
+    collapsed: false,
+  },
+  {
+    title: 'Parâmetros adicionais',
+    fields: [
+      { key: 'ffm_kg',           label: 'Massa magra (FFM)', unit: 'kg',   step: 0.1 },
+      { key: 'water_pct',        label: 'Água corporal',     unit: '%',    step: 0.1 },
+      { key: 'water_kg',         label: 'Água (kg)',         unit: 'kg',   step: 0.1 },
+      { key: 'bmr',              label: 'Metabolismo basal', unit: 'kcal', step: 1 },
+      { key: 'meta_age',         label: 'Idade metabólica',  unit: 'anos', step: 1 },
+      { key: 'physique_rating',  label: 'Physique rating',   unit: '',     step: 1 },
+      { key: 'heart_rate',       label: 'Frequência cardíaca', unit: 'bpm', step: 1 },
+      { key: 'smi',              label: 'SMI',               unit: 'kg/m²',step: 0.01 },
+      { key: 'protein_kg',       label: 'Proteína',          unit: 'kg',   step: 0.01 },
+      { key: 'mineral_kg',       label: 'Minerais',          unit: 'kg',   step: 0.01 },
+      { key: 'waist_hip_ratio',  label: 'Cintura/quadril',   unit: '',     step: 0.01 },
+      { key: 'obesity_degree',   label: 'Grau de obesidade', unit: '%',    step: 1 },
+      { key: 'recommended_kcal', label: 'Ingestão recomendada', unit: 'kcal', step: 1 },
+      { key: 'inbody_score',     label: 'Pontuação InBody',  unit: '/100', step: 1 },
+    ],
+    collapsed: true,
+  },
+];
+
+const SEGMENT_KEYS = [
+  { key: 'right_arm',  label: 'Braço direito' },
+  { key: 'left_arm',   label: 'Braço esquerdo' },
+  { key: 'right_leg',  label: 'Perna direita' },
+  { key: 'left_leg',   label: 'Perna esquerda' },
+  { key: 'trunk',      label: 'Tronco' },
+];
+
+async function editMeasurement(pid, mid) {
+  // Busca dados atuais do paciente e encontra a medição
+  const patient = await api('GET', `/bioscan/patients/${pid}`);
+  if (!patient) return;
+  const m = (patient.measurements || []).find(x => x.id === mid);
+  if (!m) {
+    alert('Medição não encontrada.');
+    return;
+  }
+
+  currentPatient = patient;  // garante que renderMuscleFatBars tenha contexto
+  editingMeasurement = JSON.parse(JSON.stringify(m));  // cópia profunda
+  editingPid = pid;
+  editingOriginalId = mid;
+
+  renderMeasurementEditor(patient, m);
+}
+
+function renderMeasurementEditor(patient, original) {
+  destroyCharts();
+  setNav(null);
+  document.getElementById('topbar-title').textContent = 'Editar medição';
+  document.getElementById('topbar-actions').innerHTML = `
+    <button class="btn" onclick="cancelEditMeasurement()">← Cancelar</button>
+    <button class="btn btn-primary" onclick="saveEditMeasurement()">✓ Salvar alterações</button>`;
+
+  const m = editingMeasurement;
+  const dateValue = m.measured_at ? m.measured_at.substring(0, 10) : '';
+
+  const principalHTML = EDIT_GROUPS[0].fields.map(f => rowForField(f)).join('');
+  const additionalHTML = EDIT_GROUPS[1].fields.map(f => rowForField(f)).join('');
+
+  const segmentalHTML = SEGMENT_KEYS.map(s => `
+    <tr style="border-bottom:0.5px solid #f0f0f0">
+      <td style="padding:6px 4px;color:#666">${s.label}</td>
+      <td style="padding:4px">
+        <input type="number" value="${m['seg_musc_' + s.key] ?? ''}" step="0.01"
+          oninput="updateEditField('seg_musc_${s.key}', this.value)"
+          style="width:100%;padding:4px 6px;border:1px solid #ddd;border-radius:4px;font-size:var(--fs-xs)">
+      </td>
+      <td style="padding:4px">
+        <input type="number" value="${m['seg_fat_' + s.key] ?? ''}" step="0.1"
+          oninput="updateEditField('seg_fat_${s.key}', this.value)"
+          style="width:100%;padding:4px 6px;border:1px solid #ddd;border-radius:4px;font-size:var(--fs-xs)">
+      </td>
+      <td style="padding:4px">
+        <input type="number" value="${m['seg_qual_' + s.key] ?? ''}" step="1"
+          oninput="updateEditField('seg_qual_${s.key}', this.value)"
+          style="width:100%;padding:4px 6px;border:1px solid #ddd;border-radius:4px;font-size:var(--fs-xs)">
+      </td>
+    </tr>
+  `).join('');
+
+  document.getElementById('content').innerHTML = `
+    <div class="card" style="padding:1rem 1.25rem;margin-bottom:1rem">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
+        <div>
+          <div style="font-size:var(--fs-base);font-weight:500">${patient.name}</div>
+          <div style="font-size:var(--fs-sm);color:#666;margin-top:4px">
+            Origem: <strong>${m.source || '—'}</strong> ·
+            Importada em ${fmtDateBR(original.measured_at)}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid grid-2" style="gap:16px">
+      <div>
+        <div class="card">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+            <div class="card-title" style="margin:0">Dados da medição</div>
+          </div>
+
+          <table style="width:100%;font-size:var(--fs-sm);border-collapse:collapse">
+            <tr style="border-bottom:0.5px solid #f0f0f0">
+              <td style="padding:8px 0;color:#666;width:45%">Data da medição</td>
+              <td style="padding:8px 0">
+                <input type="date" value="${dateValue}"
+                  oninput="updateEditField('measured_at_date', this.value)"
+                  style="width:100%;padding:6px 8px;border:1px solid #ddd;border-radius:6px;font-size:var(--fs-sm)">
+              </td>
+            </tr>
+            ${principalHTML}
+          </table>
+
+          <details style="margin-top:12px">
+            <summary style="font-size:var(--fs-sm);font-weight:500;cursor:pointer;padding:8px 0">
+              ▸ Parâmetros adicionais (${EDIT_GROUPS[1].fields.length} campos)
+            </summary>
+            <table style="width:100%;font-size:var(--fs-sm);border-collapse:collapse;margin-top:8px">
+              ${additionalHTML}
+            </table>
+          </details>
+
+          <details style="margin-top:8px">
+            <summary style="font-size:var(--fs-sm);font-weight:500;cursor:pointer;padding:8px 0">
+              ▸ Segmentais (5 segmentos × 3 dados)
+            </summary>
+            <table style="width:100%;font-size:var(--fs-xs);border-collapse:collapse;margin-top:8px">
+              <thead>
+                <tr style="border-bottom:0.5px solid #ddd">
+                  <th style="text-align:left;padding:6px 4px;color:#999;font-weight:500">Segmento</th>
+                  <th style="padding:6px 4px;color:#999;font-weight:500">Músculo (kg)</th>
+                  <th style="padding:6px 4px;color:#999;font-weight:500">Gordura (%)</th>
+                  <th style="padding:6px 4px;color:#999;font-weight:500">Qualidade</th>
+                </tr>
+              </thead>
+              <tbody>${segmentalHTML}</tbody>
+            </table>
+          </details>
+        </div>
+      </div>
+
+      <div>
+        <div class="card">
+          <div class="card-title">Pré-visualização</div>
+          <div id="edit-preview">${renderEditPreview(patient)}</div>
+          <div class="info-box" style="margin-top:12px">
+            <small>A pré-visualização atualiza conforme você edita. Compare com o arquivo original antes de salvar.</small>
+          </div>
+        </div>
+      </div>
+    </div>`;
+}
+
+function rowForField(f) {
+  const m = editingMeasurement;
+  const value = m[f.key];
+  return `
+    <tr style="border-bottom:0.5px solid #f0f0f0">
+      <td style="padding:8px 0;color:#666;width:45%">${f.label}${f.unit ? ' (' + f.unit + ')' : ''}</td>
+      <td style="padding:8px 0">
+        <input type="number" value="${value ?? ''}" step="${f.step}"
+          oninput="updateEditField('${f.key}', this.value)"
+          style="width:100%;padding:6px 8px;border:1px solid #ddd;border-radius:6px;font-size:var(--fs-sm)">
+      </td>
+    </tr>`;
+}
+
+function updateEditField(key, rawValue) {
+  // Campo especial: data
+  if (key === 'measured_at_date') {
+    if (rawValue) {
+      // Preserva horário original (se existia)
+      const oldTime = editingMeasurement.measured_at?.substring(10) || 'T00:00:00';
+      editingMeasurement.measured_at = rawValue + oldTime;
+    }
+  } else {
+    // Campo numérico: converte string → número ou null
+    if (rawValue === '' || rawValue == null) {
+      editingMeasurement[key] = null;
+    } else {
+      const num = parseFloat(rawValue);
+      editingMeasurement[key] = isNaN(num) ? null : num;
+    }
+
+    // Recalcula seg_fat via compute-at-render: atualiza o objeto seg_fat
+    if (key.startsWith('seg_fat_') || key.startsWith('seg_musc_')) {
+      editingMeasurement.seg_fat = editingMeasurement.seg_fat || {};
+      editingMeasurement.seg_musc = editingMeasurement.seg_musc || {};
+      if (key.startsWith('seg_fat_')) {
+        const side = key.replace('seg_fat_', '');
+        editingMeasurement.seg_fat[side] = editingMeasurement[key];
+      } else {
+        const side = key.replace('seg_musc_', '');
+        editingMeasurement.seg_musc[side] = editingMeasurement[key];
+      }
+    }
+  }
+
+  // Atualiza preview (busca patient do estado atual)
+  const patient = currentPatient;
+  if (patient) {
+    const previewEl = document.getElementById('edit-preview');
+    if (previewEl) previewEl.innerHTML = renderEditPreview(patient);
+  }
+}
+
+function renderEditPreview(patient) {
+  const m = editingMeasurement;
+  return renderMuscleFatBars(m, patient) + '<div style="margin-top:1rem"></div>' + renderObesityBars(m, patient);
+}
+
+function cancelEditMeasurement() {
+  if (!confirm('Descartar alterações?')) return;
+  selectPatient(editingPid);  // volta para a Overview do paciente
+}
+
+async function saveEditMeasurement() {
+  // Monta payload só com campos escalares (evita enviar seg_fat/seg_musc/seg_qual dict)
+  const payload = {};
+  const fieldKeys = [
+    ...EDIT_GROUPS[0].fields.map(f => f.key),
+    ...EDIT_GROUPS[1].fields.map(f => f.key),
+  ];
+  for (const k of fieldKeys) {
+    payload[k] = editingMeasurement[k];
+  }
+  // Segmentais (15 campos)
+  for (const s of SEGMENT_KEYS) {
+    payload['seg_musc_' + s.key] = editingMeasurement['seg_musc_' + s.key];
+    payload['seg_fat_' + s.key]  = editingMeasurement['seg_fat_' + s.key];
+    payload['seg_qual_' + s.key] = editingMeasurement['seg_qual_' + s.key];
+  }
+  // Data
+  payload.measured_at = editingMeasurement.measured_at;
+
+  const result = await api('PATCH',
+    `/bioscan/patients/${editingPid}/measurements/${editingOriginalId}`,
+    payload);
+
+  if (result && !result.error) {
+    selectPatient(editingPid);  // volta para Overview com dados atualizados
+  } else {
+    alert('Erro ao salvar: ' + (result?.error || 'desconhecido'));
   }
 }
 
