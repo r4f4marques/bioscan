@@ -246,6 +246,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     <div class="nav-item active" id="nav-list" onclick="showScreen('list')">◈ Pacientes</div>
     <div class="nav-item" id="nav-new-patient" onclick="showScreen('new-patient')" style="display:none">+ Novo paciente</div>
     <div class="nav-item" id="nav-upload" onclick="showScreen('upload')" style="display:none">↑ Importar medição</div>
+    <div class="nav-item" id="nav-users" onclick="showScreen('users')" style="display:none">◉ Profissionais</div>
     <div id="nav-patient-section" style="display:none">
       <div class="nav-section" id="nav-patient-name">Paciente</div>
       <div class="nav-item" id="nav-overview" onclick="showTab('overview')">○ Visão geral</div>
@@ -277,11 +278,17 @@ let user  = JSON.parse(localStorage.getItem('bioscan_user') || '{}');
 let currentPatient = null;
 let currentManufacturer = 'all';  // 'all', 'tanita', 'inbody', etc.
 let isDoctor = false;
+let isSecretary = false;
+let isStaff = false;  // doctor ou secretary
+let isAdmin = false;
 let charts = {};
 
 if (!token) window.location.href = '/';
 
 isDoctor = user.role === 'doctor';
+isSecretary = user.role === 'secretary';
+isStaff = isDoctor || isSecretary;
+isAdmin = !!user.is_admin;
 document.getElementById('footer-name').textContent = user.name || user.email || '—';
 
 // ── SIDEBAR (mobile) ──────────────────────────────────────────────────
@@ -299,11 +306,18 @@ document.getElementById('sidebar-nav').addEventListener('click', (e) => {
     toggleSidebar(false);
   }
 });
-document.getElementById('footer-role').textContent = isDoctor ? 'Médico' : 'Paciente';
+document.getElementById('footer-role').textContent =
+  isAdmin ? 'Admin' :
+  isDoctor ? 'Médico' :
+  isSecretary ? 'Secretária' : 'Paciente';
 
-if (isDoctor) {
+if (isStaff) {
   document.getElementById('nav-new-patient').style.display = 'flex';
   document.getElementById('nav-upload').style.display = 'flex';
+}
+
+if (isAdmin) {
+  document.getElementById('nav-users').style.display = 'flex';
 }
 
 async function api(method, path, body, isForm) {
@@ -345,7 +359,7 @@ function showScreen(screen) {
   if (screen === 'list') {
     setNav('nav-list');
     document.getElementById('topbar-title').textContent = 'Pacientes';
-    if (isDoctor) {
+    if (isStaff) {
       document.getElementById('topbar-actions').innerHTML =
         '<button class="btn btn-primary" onclick="showScreen(\'new-patient\')">+ Novo paciente</button>';
     }
@@ -358,6 +372,10 @@ function showScreen(screen) {
     setNav('nav-upload');
     document.getElementById('topbar-title').textContent = 'Importar medição';
     renderUpload();
+  } else if (screen === 'users') {
+    setNav('nav-users');
+    document.getElementById('topbar-title').textContent = 'Profissionais';
+    renderUsersScreen();
   }
 }
 
@@ -368,7 +386,7 @@ function showPatient(p) {
   document.getElementById('topbar-title').textContent = p.name;
   document.getElementById('topbar-actions').innerHTML =
     '<button class="btn" onclick="showScreen(\'list\')">← Voltar</button> ' +
-    (isDoctor ? '<button class="btn" onclick="editPatient()">✎ Editar cadastro</button> <button class="btn" onclick="showAuditLog()">📋 Histórico de ações</button>' : '');
+    (isStaff ? '<button class="btn" onclick="editPatient()">✎ Editar cadastro</button> <button class="btn" onclick="showAuditLog()">📋 Histórico de ações</button>' : '');
   showTab('overview');
 }
 
@@ -418,6 +436,10 @@ function renderAuditLog(logs) {
     'measurement.import_pdf':  { icon: '📑', label: 'PDF importado',           color: '#16a085' },
     'measurement.import_file': { icon: '📑', label: 'Arquivo importado',       color: '#16a085' },
     'measurement.import_confirmed': { icon: '📑', label: 'Importação confirmada', color: '#16a085' },
+    'user.create':             { icon: '✚',  label: 'Profissional cadastrado', color: '#2d6a1f' },
+    'user.update':             { icon: '✎',  label: 'Profissional editado',    color: '#1a6fa8' },
+    'user.reset_link':         { icon: '🔗', label: 'Link de senha gerado',    color: '#8e44ad' },
+    'user.delete':             { icon: '🗑',  label: 'Profissional excluído',   color: '#c0392b' },
   };
 
   const formatDate = (iso) => {
@@ -619,7 +641,7 @@ function maskPhone(v) {
 async function loadPatients() {
   document.getElementById('content').innerHTML = '<div class="loading">Carregando...</div>';
 
-  if (!isDoctor) {
+  if (!isStaff) {
     const pid = user.patient_id;
     if (!pid) {
       document.getElementById('content').innerHTML = '<div class="loading">Perfil não encontrado.</div>';
@@ -697,7 +719,7 @@ function renderPatientList(patients) {
       <div>${l.visceral !== undefined ? `<span class="badge ${viscStatus(l.visceral)}">${l.visceral}</span>` : '—'}</div>
       <div style="display:flex;gap:4px;justify-content:flex-end" onclick="event.stopPropagation()">
         <button class="btn" onclick="selectPatient(${p.id})">Ver →</button>
-        <button class="btn" style="color:#c0392b" onclick="deletePatient(${p.id}, '${p.name.replace(/'/g, "\\'")}')">✕</button>
+        ${isDoctor ? `<button class="btn" style="color:#c0392b" onclick="deletePatient(${p.id}, '${p.name.replace(/'/g, "\\'")}')">✕</button>` : ''}
       </div>
     </div>`;
   }).join('');
@@ -1015,9 +1037,41 @@ function renderOverview() {
     document.getElementById('content').innerHTML = renderManufacturerToggle(p) + `
       <div class="card" style="text-align:center;padding:2rem;color:#bbb">
         Nenhuma medição encontrada${currentManufacturer !== 'all' ? ' para este fabricante' : ''}.<br><br>
-        ${isDoctor ? '<button class="btn btn-primary" onclick="showScreen(\'upload\')">↑ Importar primeira medição</button>' : ''}
+        ${isStaff ? '<button class="btn btn-primary" onclick="showScreen(\'upload\')">↑ Importar primeira medição</button>' : ''}
       </div>`;
     return;
+  }
+
+  // Card secundário direito: interpretação IA (médico) / ações (secretária) / resumo (paciente)
+  let secondaryCard;
+  if (isDoctor) {
+    secondaryCard = `
+      <div class="card">
+        <div class="card-title">Interpretação IA <small>Groq llama-3.3-70b</small></div>
+        <div id="interpret-box" class="interpret-box" style="color:#bbb;font-style:italic">Clique em "Gerar interpretação" para analisar.</div>
+        <div style="display:flex;gap:.5rem;margin-top:.75rem">
+          <button class="btn btn-primary" style="flex:1" onclick="getInterpretation()">Gerar interpretação</button>
+          <button class="btn" style="flex:1" onclick="downloadReport()">↓ Baixar relatório PDF</button>
+        </div>
+      </div>`;
+  } else if (isSecretary) {
+    secondaryCard = `
+      <div class="card">
+        <div class="card-title">Ações</div>
+        <div style="font-size:var(--fs-sm);color:#666;line-height:1.7;margin-bottom:1rem">
+          Interpretação clínica deve ser feita por médico. Secretárias podem gerar relatório PDF e gerenciar medições.
+        </div>
+        <button class="btn" style="width:100%" onclick="downloadReport()">↓ Baixar relatório PDF</button>
+      </div>`;
+  } else {
+    secondaryCard = `
+      <div class="card">
+        <div class="card-title">Resumo clínico</div>
+        <div style="font-size:var(--fs-sm);color:#666;line-height:1.7">
+          Seus dados foram analisados pela equipe médica.<br>
+          Para interpretação detalhada, consulte seu médico.
+        </div>
+      </div>`;
   }
 
   document.getElementById('content').innerHTML = renderManufacturerToggle(p) + `
@@ -1032,22 +1086,7 @@ function renderOverview() {
     </div>
     <div class="grid grid-2">
       ${renderAgeOrScoreCard(m, p)}
-      ${isDoctor ? `
-      <div class="card">
-        <div class="card-title">Interpretação IA <small>Groq llama-3.3-70b</small></div>
-        <div id="interpret-box" class="interpret-box" style="color:#bbb;font-style:italic">Clique em "Gerar interpretação" para analisar.</div>
-        <div style="display:flex;gap:.5rem;margin-top:.75rem">
-          <button class="btn btn-primary" style="flex:1" onclick="getInterpretation()">Gerar interpretação</button>
-          <button class="btn" style="flex:1" onclick="downloadReport()">↓ Baixar relatório PDF</button>
-        </div>
-      </div>` : `
-      <div class="card">
-        <div class="card-title">Resumo clínico</div>
-        <div style="font-size:var(--fs-sm);color:#666;line-height:1.7">
-          Seus dados foram analisados pela equipe médica.<br>
-          Para interpretação detalhada, consulte seu médico.
-        </div>
-      </div>`}
+      ${secondaryCard}
     </div>`;
 }
 
@@ -1125,7 +1164,7 @@ function renderEvolution() {
     <td>${m.visceral != null ? `<span class="badge ${viscStatus(m.visceral)}">${m.visceral}</span>` : '—'}</td>
     <td>${m.meta_age != null ? m.meta_age + ' anos' : '—'}</td>
     <td>${m.bmr != null ? m.bmr.toFixed(0) + ' kcal' : '—'}</td>
-    ${isDoctor ? `<td style="text-align:right;white-space:nowrap">
+    ${isStaff ? `<td style="text-align:right;white-space:nowrap">
       <button class="btn" style="padding:3px 8px;font-size:var(--fs-xs)"
         onclick="editMeasurement(${currentPatient.id}, ${m.id})" title="Editar">✎</button>
     </td>` : ''}
@@ -1168,7 +1207,7 @@ function renderEvolution() {
     <div class="card">
       <div class="card-title">Histórico de medições <small>${ms.length} registro(s)</small></div>
       <table class="evo-tbl">
-        <thead><tr><th>Data</th><th>Peso</th><th>Gordura</th><th>Músculo</th><th>Visceral</th><th>Id. met.</th><th>BMR</th>${isDoctor ? '<th></th>' : ''}</tr></thead>
+        <thead><tr><th>Data</th><th>Peso</th><th>Gordura</th><th>Músculo</th><th>Visceral</th><th>Id. met.</th><th>BMR</th>${isStaff ? '<th></th>' : ''}</tr></thead>
         <tbody>${rows}</tbody>
       </table>
     </div>`;
@@ -1886,8 +1925,8 @@ async function loadPatientMeasurements(pid) {
             <td style="text-align:right;white-space:nowrap">
               <button class="btn" style="padding:3px 8px;font-size:var(--fs-xs);margin-right:4px"
                 onclick="editMeasurement(${pid}, ${m.id})" title="Editar">✎</button>
-              <button class="btn" style="color:#c0392b;padding:3px 8px;font-size:var(--fs-xs)"
-                onclick="deleteMeasurement(${pid}, ${m.id}, '${display}')" title="Excluir">✕</button>
+              ${isDoctor ? `<button class="btn" style="color:#c0392b;padding:3px 8px;font-size:var(--fs-xs)"
+                onclick="deleteMeasurement(${pid}, ${m.id}, '${display}')" title="Excluir">✕</button>` : ''}
             </td>
           </tr>`;
         }).join('')}
@@ -2173,6 +2212,297 @@ async function confirmImportPreview() {
       loadPatientMeasurements(pid);
     }
   }, 100);
+}
+
+// ── GESTÃO DE PROFISSIONAIS (admin only) ──────────────────────────────────
+
+async function renderUsersScreen() {
+  if (!isAdmin) {
+    document.getElementById('content').innerHTML = `
+      <div class="card" style="text-align:center;padding:2rem;color:#bbb">
+        Apenas administradores podem acessar esta tela.
+      </div>`;
+    return;
+  }
+
+  document.getElementById('topbar-actions').innerHTML =
+    '<button class="btn btn-primary" onclick="showNewUserForm()">+ Novo profissional</button>';
+
+  document.getElementById('content').innerHTML = '<div class="loading">Carregando profissionais...</div>';
+  const users = await api('GET', '/bioscan/users');
+  if (!users) return;
+
+  if (!users.length) {
+    document.getElementById('content').innerHTML = `
+      <div class="card" style="text-align:center;padding:2rem;color:#999">
+        Nenhum profissional cadastrado além de você.<br>
+        <button class="btn btn-primary" style="margin-top:1rem" onclick="showNewUserForm()">+ Cadastrar profissional</button>
+      </div>`;
+    return;
+  }
+
+  const roleLabel = (u) => {
+    let label = u.role === 'doctor' ? 'Médico' : u.role === 'secretary' ? 'Secretária' : u.role;
+    if (u.is_admin) label += ' · Admin';
+    return label;
+  };
+
+  const rows = users.map(u => {
+    const statusBadge = u.is_active
+      ? '<span class="badge ok" style="padding:2px 8px">Ativo</span>'
+      : '<span class="badge alert" style="padding:2px 8px">Inativo</span>';
+    const isSelf = u.id === user.id;
+    return `
+      <tr>
+        <td style="font-weight:500">${u.name || '—'}${isSelf ? ' <small style="color:#999">(você)</small>' : ''}</td>
+        <td>${u.email}</td>
+        <td>${roleLabel(u)}</td>
+        <td>${statusBadge}</td>
+        <td style="text-align:right;white-space:nowrap">
+          <button class="btn" style="padding:3px 8px;font-size:var(--fs-xs);margin-right:4px"
+            onclick="editUserForm(${u.id})" title="Editar">✎</button>
+          <button class="btn" style="padding:3px 8px;font-size:var(--fs-xs);margin-right:4px"
+            onclick="generateResetLink(${u.id}, '${u.name?.replace(/'/g, "\\'") || u.email}')" title="Gerar link de senha">🔗</button>
+          ${!isSelf ? `<button class="btn" style="color:#c0392b;padding:3px 8px;font-size:var(--fs-xs)"
+            onclick="deleteUser(${u.id}, '${u.name?.replace(/'/g, "\\'") || u.email}')" title="Excluir">✕</button>` : ''}
+        </td>
+      </tr>`;
+  }).join('');
+
+  document.getElementById('content').innerHTML = `
+    <div class="card">
+      <div class="card-title">Profissionais <small>${users.length} cadastrado(s)</small></div>
+      <table class="evo-tbl">
+        <thead><tr><th>Nome</th><th>E-mail</th><th>Papel</th><th>Status</th><th></th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+    <div class="card" style="margin-top:1rem;background:#f0f4ff;border-color:#c5d8f4">
+      <div style="font-size:var(--fs-sm);color:#1a4fa8;line-height:1.6">
+        <strong>Como funciona:</strong><br>
+        Ao cadastrar um novo profissional, o sistema gera um link de primeiro acesso (válido por 7 dias).
+        Copie o link e envie à pessoa por WhatsApp, e-mail ou pessoalmente.
+        Ao acessar, ela definirá a própria senha.
+      </div>
+    </div>`;
+}
+
+function showNewUserForm() {
+  destroyCharts();
+  setNav(null);
+  document.getElementById('topbar-title').textContent = 'Novo profissional';
+  document.getElementById('topbar-actions').innerHTML =
+    '<button class="btn" onclick="showScreen(\'users\')">← Voltar</button>';
+
+  document.getElementById('content').innerHTML = `
+    <div class="card" style="max-width:560px">
+      <div class="card-title">Cadastrar profissional</div>
+      <div class="form-row">
+        <label>Nome completo</label>
+        <input type="text" id="new-user-name" placeholder="Dra. Maria Silva">
+      </div>
+      <div class="form-row">
+        <label>E-mail</label>
+        <input type="email" id="new-user-email" placeholder="maria@clinica.com">
+      </div>
+      <div class="form-row">
+        <label>Papel</label>
+        <select id="new-user-role" onchange="toggleAdminCheckbox()">
+          <option value="doctor">Médico(a)</option>
+          <option value="secretary">Secretária(o)</option>
+        </select>
+      </div>
+      <div class="form-row" id="admin-checkbox-row">
+        <label style="display:flex;align-items:center;gap:8px;font-weight:400;cursor:pointer">
+          <input type="checkbox" id="new-user-is-admin" style="width:auto">
+          Conceder privilégios de administrador
+          <small style="color:#999;margin-left:4px">(pode gerenciar outros profissionais)</small>
+        </label>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:1.5rem">
+        <button class="btn" onclick="showScreen('users')">Cancelar</button>
+        <button class="btn btn-primary" onclick="submitNewUser()">Cadastrar</button>
+      </div>
+    </div>`;
+}
+
+function toggleAdminCheckbox() {
+  const role = document.getElementById('new-user-role').value;
+  const row = document.getElementById('admin-checkbox-row');
+  const check = document.getElementById('new-user-is-admin');
+  if (role === 'secretary') {
+    row.style.display = 'none';
+    check.checked = false;
+  } else {
+    row.style.display = '';
+  }
+}
+
+async function submitNewUser() {
+  const name = document.getElementById('new-user-name').value.trim();
+  const email = document.getElementById('new-user-email').value.trim();
+  const role = document.getElementById('new-user-role').value;
+  const is_admin = document.getElementById('new-user-is-admin').checked;
+
+  if (!name) return alert('Nome obrigatório');
+  if (!email) return alert('E-mail obrigatório');
+
+  const data = await api('POST', '/bioscan/users', { name, email, role, is_admin });
+  if (!data) return;
+  if (data.error) return alert('Erro: ' + data.error);
+
+  // Sucesso — mostra modal com link de primeiro acesso
+  showResetLinkModal(data, name);
+}
+
+function showResetLinkModal(data, name) {
+  const fullLink = window.location.origin + data.reset_link;
+  const expiresDate = new Date(data.expires_at).toLocaleDateString('pt-BR');
+
+  document.getElementById('content').innerHTML = `
+    <div class="card" style="max-width:640px">
+      <div class="success-box" style="margin-bottom:1rem">
+        ✓ <strong>${name}</strong> cadastrado(a) com sucesso!
+      </div>
+
+      <div class="card-title">Link de primeiro acesso</div>
+      <div style="font-size:var(--fs-sm);color:#666;margin-bottom:1rem;line-height:1.6">
+        Copie este link e envie ao profissional (WhatsApp, e-mail, pessoalmente). 
+        Ao clicar, ele poderá definir a própria senha.
+        <br><strong>Válido até ${expiresDate}.</strong>
+      </div>
+
+      <div style="display:flex;gap:8px;align-items:center;margin:1rem 0">
+        <input type="text" id="reset-link-input" value="${fullLink}" readonly
+          style="flex:1;padding:11px 14px;border:1px solid #ddd;border-radius:8px;font-size:var(--fs-sm);font-family:monospace;background:#f9f9f7">
+        <button class="btn btn-primary" onclick="copyResetLink()" id="copy-btn">Copiar</button>
+      </div>
+
+      <div class="info-box" style="margin-top:1rem">
+        <small>
+          <strong>Dica:</strong> se perder este link, você pode gerar um novo
+          clicando no ícone 🔗 ao lado do profissional na lista.
+        </small>
+      </div>
+
+      <div style="display:flex;gap:8px;margin-top:1.5rem">
+        <button class="btn" onclick="showScreen('users')">Voltar à lista</button>
+        <button class="btn" onclick="showNewUserForm()">+ Cadastrar outro</button>
+      </div>
+    </div>`;
+}
+
+function copyResetLink() {
+  const input = document.getElementById('reset-link-input');
+  input.select();
+  input.setSelectionRange(0, 99999);
+  navigator.clipboard.writeText(input.value).then(() => {
+    const btn = document.getElementById('copy-btn');
+    btn.textContent = '✓ Copiado!';
+    btn.style.background = '#2d6a1f';
+    btn.style.borderColor = '#2d6a1f';
+    setTimeout(() => {
+      btn.textContent = 'Copiar';
+      btn.style.background = '';
+      btn.style.borderColor = '';
+    }, 2000);
+  }).catch(() => alert('Falhou ao copiar. Selecione manualmente e copie (Cmd+C).'));
+}
+
+async function editUserForm(uid) {
+  const users = await api('GET', '/bioscan/users');
+  if (!users) return;
+  const u = users.find(x => x.id === uid);
+  if (!u) return alert('Profissional não encontrado');
+
+  destroyCharts();
+  setNav(null);
+  document.getElementById('topbar-title').textContent = 'Editar profissional';
+  document.getElementById('topbar-actions').innerHTML =
+    '<button class="btn" onclick="showScreen(\'users\')">← Voltar</button>';
+
+  const isSelf = u.id === user.id;
+
+  document.getElementById('content').innerHTML = `
+    <div class="card" style="max-width:560px">
+      <div class="card-title">${u.email}</div>
+      <div class="form-row">
+        <label>Nome</label>
+        <input type="text" id="edit-user-name" value="${u.name || ''}">
+      </div>
+      <div class="form-row">
+        <label>Papel</label>
+        <select id="edit-user-role" onchange="toggleEditAdmin()" ${isSelf ? 'disabled' : ''}>
+          <option value="doctor" ${u.role === 'doctor' ? 'selected' : ''}>Médico(a)</option>
+          <option value="secretary" ${u.role === 'secretary' ? 'selected' : ''}>Secretária(o)</option>
+        </select>
+        ${isSelf ? '<small style="color:#999">Você não pode alterar o próprio papel</small>' : ''}
+      </div>
+      <div class="form-row" id="edit-admin-row">
+        <label style="display:flex;align-items:center;gap:8px;font-weight:400;cursor:pointer">
+          <input type="checkbox" id="edit-user-is-admin" ${u.is_admin ? 'checked' : ''} ${isSelf ? 'disabled' : ''} style="width:auto">
+          Administrador (pode gerenciar outros profissionais)
+        </label>
+        ${isSelf ? '<small style="color:#999">Você não pode remover o próprio privilégio de admin</small>' : ''}
+      </div>
+      <div class="form-row">
+        <label style="display:flex;align-items:center;gap:8px;font-weight:400;cursor:pointer">
+          <input type="checkbox" id="edit-user-is-active" ${u.is_active ? 'checked' : ''} ${isSelf ? 'disabled' : ''} style="width:auto">
+          Conta ativa (pode fazer login)
+        </label>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:1.5rem">
+        <button class="btn" onclick="showScreen('users')">Cancelar</button>
+        <button class="btn btn-primary" onclick="submitEditUser(${u.id})">Salvar alterações</button>
+      </div>
+    </div>`;
+
+  toggleEditAdmin();
+}
+
+function toggleEditAdmin() {
+  const role = document.getElementById('edit-user-role').value;
+  const row = document.getElementById('edit-admin-row');
+  const check = document.getElementById('edit-user-is-admin');
+  if (role === 'secretary') {
+    row.style.display = 'none';
+    check.checked = false;
+  } else {
+    row.style.display = '';
+  }
+}
+
+async function submitEditUser(uid) {
+  const payload = {
+    name: document.getElementById('edit-user-name').value.trim(),
+    role: document.getElementById('edit-user-role').value,
+    is_admin: document.getElementById('edit-user-is-admin').checked,
+    is_active: document.getElementById('edit-user-is-active').checked,
+  };
+
+  const data = await api('PATCH', `/bioscan/users/${uid}`, payload);
+  if (!data) return;
+  if (data.error) return alert('Erro: ' + data.error);
+
+  showScreen('users');
+}
+
+async function generateResetLink(uid, name) {
+  if (!confirm(`Gerar novo link de primeiro acesso para ${name}?\n\nIsso invalida qualquer link anterior.`)) return;
+  const data = await api('POST', `/bioscan/users/${uid}/reset-link`);
+  if (!data) return;
+  if (data.error) return alert('Erro: ' + data.error);
+
+  showResetLinkModal(data, name);
+}
+
+async function deleteUser(uid, name) {
+  if (!confirm(`Excluir ${name}?\n\nEsta ação não pode ser desfeita.`)) return;
+  const data = await api('DELETE', `/bioscan/users/${uid}`);
+  if (!data) return;
+  if (data.error) return alert('Erro: ' + data.error);
+
+  renderUsersScreen();  // recarrega lista
 }
 
 // ── EDITOR DE MEDIÇÃO ─────────────────────────────────────────────────────
