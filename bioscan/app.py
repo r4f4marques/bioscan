@@ -68,6 +68,10 @@ def create_app() -> Flask:
     def dashboard():
         return send_from_directory("../static", "index.html")
 
+    @app.route("/reset-password.html")
+    def reset_password_page():
+        return send_from_directory("../static", "reset-password.html")
+
     with app.app_context():
         db.create_all()
         _migrate_schema()
@@ -84,6 +88,35 @@ def _migrate_schema():
     from sqlalchemy import text, inspect
 
     inspector = inspect(db.engine)
+
+    # ── users: is_admin, reset_token, reset_token_expires ──
+    if "users" in inspector.get_table_names():
+        existing_cols = {col["name"] for col in inspector.get_columns("users")}
+        alters = []
+        if "is_admin" not in existing_cols:
+            alters.append("ADD COLUMN is_admin BOOLEAN DEFAULT FALSE NOT NULL")
+        if "reset_token" not in existing_cols:
+            alters.append("ADD COLUMN reset_token VARCHAR(64)")
+        if "reset_token_expires" not in existing_cols:
+            alters.append("ADD COLUMN reset_token_expires TIMESTAMP")
+
+        if alters:
+            with db.engine.begin() as conn:
+                for alter in alters:
+                    try:
+                        conn.execute(text(f"ALTER TABLE users {alter}"))
+                        print(f"[BioScan] Migração: users {alter}")
+                    except Exception as e:
+                        print(f"[BioScan] Migração falhou ({alter}): {e}")
+
+            if any("reset_token" in a for a in alters):
+                try:
+                    with db.engine.begin() as conn:
+                        conn.execute(text(
+                            "CREATE INDEX IF NOT EXISTS ix_users_reset_token ON users(reset_token)"
+                        ))
+                except Exception as e:
+                    print(f"[BioScan] Índice reset_token falhou: {e}")
 
     # ── patients: cpf e phone ──
     if "patients" in inspector.get_table_names():

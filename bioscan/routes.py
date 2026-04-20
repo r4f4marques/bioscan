@@ -170,6 +170,11 @@ def login():
 
 @bioscan_bp.post("/auth/create-doctor")
 def create_doctor():
+    """
+    Endpoint semente via ADMIN_KEY (usado apenas para criar o PRIMEIRO médico admin).
+    Após haver ao menos um admin no banco, a gestão de profissionais é feita via
+    /bioscan/users/* (com autenticação).
+    """
     admin_key = request.headers.get("X-Admin-Key", "")
     expected  = os.environ.get("ADMIN_KEY", "")
     if not expected or admin_key != expected:
@@ -182,24 +187,272 @@ def create_doctor():
     if User.query.filter_by(email=data["email"].lower()).first():
         return jsonify({"error": "E-mail já cadastrado"}), 409
 
-    user = User(email=data["email"].lower(), role="doctor", name=data.get("name", ""))
+    # Se ainda não há admin no sistema, este médico vira admin automaticamente
+    has_admin = User.query.filter_by(is_admin=True).first() is not None
+    user = User(
+        email=data["email"].lower(),
+        role="doctor",
+        name=data.get("name", ""),
+        is_admin=not has_admin,
+    )
     user.set_password(data["password"])
     db.session.add(user)
     db.session.commit()
     return jsonify(user.to_dict()), 201
 
 
+# ── RESET DE SENHA (primeiro acesso ou esqueci senha) ────────────────────
+
+def _generate_reset_token():
+    """Gera token seguro de 32 bytes para reset de senha."""
+    import secrets
+    return secrets.token_urlsafe(32)
+
+
+@bioscan_bp.post("/auth/reset-password")
+def reset_password():
+    """
+    Endpoint público: recebe token + nova senha e atualiza.
+    Token é invalidado após uso.
+    """
+    data = request.get_json(silent=True) or {}
+    token = data.get("token", "").strip()
+    new_password = data.get("password", "")
+
+    if not token or not new_password:
+        return jsonify({"error": "Token e nova senha obrigatórios"}), 400
+
+    if len(new_password) < 6:
+        return jsonify({"error": "Senha deve ter pelo menos 6 caracteres"}), 400
+
+    user = User.query.filter_by(reset_token=token).first()
+    if not user:
+        return jsonify({"error": "Token inválido ou já utilizado"}), 401
+
+    if user.reset_token_expires and user.reset_token_expires < datetime.now(timezone.utc):
+        return jsonify({"error": "Token expirado. Solicite um novo ao administrador."}), 401
+
+    user.set_password(new_password)
+    user.reset_token = None
+    user.reset_token_expires = None
+    db.session.commit()
+
+    return jsonify({"message": "Senha redefinida com sucesso", "email": user.email}), 200
+
+
+# ── GESTÃO DE PROFISSIONAIS (admin only) ──────────────────────────────────
+
+def require_admin(fn):
+    """Decorator: só admins podem acessar."""
+    @wraps(fn)
+    @require_auth
+    def wrapper(*args, **kwargs):
+        if not getattr(g.user, "is_admin", False):
+            return jsonify({"error": "Apenas administradores"}), 403
+        return fn(*args, **kwargs)
+    return wrapper
+
+
+@bioscan_bp.get("/users")
+@require_admin
+def list_users():
+    """Lista todos profissionais (doctor, secretary). Exclui pacientes."""
+    users = User.query.filter(
+        User.role.in_(["doctor", "secretary"])
+    ).order_by(User.name).all()
+    return jsonify([u.to_dict() for u in users])
+
+
+@bioscan_bp.post("/users")
+@require_admin
+def create_user():
+    """
+    Cria novo profissional. Gera token de primeiro acesso.
+    Body: name, email, role (doctor ou secretary), is_admin (opcional)
+    Retorna os dados do usuário + reset_link (URL relativa).
+    """
+    data = request.get_json(silent=True) or {}
+    name = (data.get("name") or "").strip()
+    email = (data.get("email") or "").lower().strip()
+    role = data.get("role", "doctor")
+    make_admin = bool(data.get("is_admin", False))
+
+    if not name:
+        return jsonify({"error": "Nome obrigatório"}), 400
+    if not email:
+        return jsonify({"error": "E-mail obrigatório"}), 400
+    if role not in ("doctor", "secretary"):
+        return jsonify({"error": "Papel inválido (doctor ou secretary)"}), 400
+
+    if User.query.filter_by(email=email).first():
+        return jsonify({"error": "E-mail já cadastrado"}), 409
+
+    # Secretárias NUNCA podem ser admin
+    if role == "secretary" and make_admin:
+        return jsonify({"error": "Secretárias não podem ter privilégio de admin"}), 400
+
+    # Cria sem senha — exige primeiro-acesso via token
+    from datetime import timedelta
+    token = _generate_reset_token()
+    expires = datetime.now(timezone.utc) + timedelta(days=7)
+
+    user = User(
+        email=email, role=role, name=name,
+        is_admin=make_admin,
+        reset_token=token,
+        reset_token_expires=expires,
+    )
+    db.session.add(user)
+    db.session.flush()
+
+    log_action(
+        "user.create",
+        entity_type="user",
+        entity_id=user.id,
+        details={"name": name, "email": email, "role": role, "is_admin": make_admin},
+    )
+
+    db.session.commit()
+
+    return jsonify({
+        **user.to_dict(),
+        "reset_token": token,
+        "reset_link": f"/reset-password.html?token={token}",
+        "expires_at": expires.isoformat(),
+    }), 201
+
+
+@bioscan_bp.patch("/users/<int:uid>")
+@require_admin
+def update_user(uid):
+    """
+    Atualiza nome, papel ou privilégio admin.
+    Não altera e-mail (para não confundir login existente).
+    """
+    user = db.get_or_404(User, uid)
+
+    # Não permite mexer em contas de paciente daqui
+    if user.role == "patient":
+        return jsonify({"error": "Pacientes não são gerenciados aqui"}), 400
+
+    data = request.get_json(silent=True) or {}
+    changes = {}
+
+    if "name" in data and data["name"] != user.name:
+        changes["name"] = {"from": user.name, "to": data["name"]}
+        user.name = data["name"]
+
+    if "role" in data and data["role"] != user.role:
+        if data["role"] not in ("doctor", "secretary"):
+            return jsonify({"error": "Papel inválido"}), 400
+        changes["role"] = {"from": user.role, "to": data["role"]}
+        user.role = data["role"]
+        # Secretárias não podem ser admin
+        if user.role == "secretary" and user.is_admin:
+            changes["is_admin"] = {"from": True, "to": False}
+            user.is_admin = False
+
+    if "is_admin" in data and data["is_admin"] != user.is_admin:
+        if data["is_admin"] and user.role == "secretary":
+            return jsonify({"error": "Secretárias não podem ser admin"}), 400
+        # Previne remover o último admin do sistema
+        if not data["is_admin"] and user.is_admin:
+            admin_count = User.query.filter_by(is_admin=True, is_active=True).count()
+            if admin_count <= 1:
+                return jsonify({"error": "Não é possível remover o último administrador"}), 400
+        changes["is_admin"] = {"from": user.is_admin, "to": data["is_admin"]}
+        user.is_admin = data["is_admin"]
+
+    if "is_active" in data and data["is_active"] != user.is_active:
+        # Previne desativar o último admin ativo
+        if not data["is_active"] and user.is_admin:
+            active_admins = User.query.filter_by(is_admin=True, is_active=True).count()
+            if active_admins <= 1:
+                return jsonify({"error": "Não é possível desativar o último administrador"}), 400
+        changes["is_active"] = {"from": user.is_active, "to": data["is_active"]}
+        user.is_active = data["is_active"]
+
+    if changes:
+        log_action(
+            "user.update",
+            entity_type="user",
+            entity_id=user.id,
+            details={"changes": changes},
+        )
+
+    db.session.commit()
+    return jsonify(user.to_dict())
+
+
+@bioscan_bp.post("/users/<int:uid>/reset-link")
+@require_admin
+def generate_reset_link(uid):
+    """Gera novo link de reset para um profissional (primeiro acesso ou esqueceu senha)."""
+    user = db.get_or_404(User, uid)
+    if user.role == "patient":
+        return jsonify({"error": "Use o fluxo de paciente para resetar senha de pacientes"}), 400
+
+    from datetime import timedelta
+    token = _generate_reset_token()
+    expires = datetime.now(timezone.utc) + timedelta(days=7)
+    user.reset_token = token
+    user.reset_token_expires = expires
+
+    log_action(
+        "user.reset_link",
+        entity_type="user",
+        entity_id=user.id,
+        details={"email": user.email},
+    )
+
+    db.session.commit()
+    return jsonify({
+        "reset_token": token,
+        "reset_link": f"/reset-password.html?token={token}",
+        "expires_at": expires.isoformat(),
+    })
+
+
+@bioscan_bp.delete("/users/<int:uid>")
+@require_admin
+def delete_user(uid):
+    """Remove profissional. Previne excluir a si mesmo ou último admin."""
+    user = db.get_or_404(User, uid)
+
+    if user.id == g.user.id:
+        return jsonify({"error": "Você não pode excluir sua própria conta"}), 400
+
+    if user.role == "patient":
+        return jsonify({"error": "Pacientes são excluídos junto ao seu cadastro"}), 400
+
+    if user.is_admin:
+        admin_count = User.query.filter_by(is_admin=True).count()
+        if admin_count <= 1:
+            return jsonify({"error": "Não é possível excluir o último administrador"}), 400
+
+    log_action(
+        "user.delete",
+        entity_type="user",
+        entity_id=user.id,
+        details={"name": user.name, "email": user.email, "role": user.role},
+    )
+
+    db.session.delete(user)
+    db.session.commit()
+    return jsonify({"deleted": uid})
+
+
 # ── PATIENTS ──────────────────────────────────────────────────────────────
 
 @bioscan_bp.get("/patients")
-@require_role("doctor")
+@require_role("doctor", "secretary")
 def list_patients():
     patients = Patient.query.order_by(Patient.name).all()
     return jsonify([p.to_dict() for p in patients])
 
 
 @bioscan_bp.get("/patients/by-cpf/<cpf>")
-@require_role("doctor")
+@require_role("doctor", "secretary")
 def get_patient_by_cpf(cpf):
     """Busca paciente por CPF (com ou sem formatação)."""
     cpf_formatted = format_cpf(cpf)
@@ -210,7 +463,7 @@ def get_patient_by_cpf(cpf):
 
 
 @bioscan_bp.post("/patients")
-@require_role("doctor")
+@require_role("doctor", "secretary")
 def create_patient():
     """
     Cria paciente + conta de usuário.
@@ -295,7 +548,7 @@ def get_patient(pid):
 
 
 @bioscan_bp.patch("/patients/<int:pid>")
-@require_role("doctor")
+@require_role("doctor", "secretary")
 def update_patient(pid):
     p = db.get_or_404(Patient, pid)
     data = request.get_json(silent=True) or {}
@@ -414,7 +667,7 @@ def list_measurements(pid):
 
 
 @bioscan_bp.post("/patients/<int:pid>/measurements")
-@require_role("doctor")
+@require_role("doctor", "secretary")
 def add_measurement(pid):
     db.get_or_404(Patient, pid)
     data = request.get_json(silent=True) or {}
@@ -460,7 +713,7 @@ def delete_measurement(pid, mid):
 
 
 @bioscan_bp.patch("/patients/<int:pid>/measurements/<int:mid>")
-@require_role("doctor")
+@require_role("doctor", "secretary")
 def update_measurement(pid, mid):
     """
     Edita campos de uma medição existente.
@@ -540,7 +793,7 @@ def update_measurement(pid, mid):
 # ── CSV IMPORT ────────────────────────────────────────────────────────────
 
 @bioscan_bp.post("/patients/<int:pid>/import-csv")
-@require_role("doctor")
+@require_role("doctor", "secretary")
 def import_csv(pid):
     db.get_or_404(Patient, pid)
 
@@ -593,7 +846,7 @@ def import_csv(pid):
 # ── PDF IMPORT (via LLM Vision) ──────────────────────────────────────────
 
 @bioscan_bp.post("/patients/<int:pid>/parse-file")
-@require_role("doctor")
+@require_role("doctor", "secretary")
 def parse_file_preview(pid):
     """
     Extrai dados do arquivo via Groq Vision SEM salvar no banco.
@@ -655,7 +908,7 @@ def parse_file_preview(pid):
 
 
 @bioscan_bp.post("/patients/<int:pid>/save-measurement")
-@require_role("doctor")
+@require_role("doctor", "secretary")
 def save_measurement(pid):
     """
     Salva uma medição a partir de dados já validados pelo usuário.
@@ -715,7 +968,7 @@ def save_measurement(pid):
 
 @bioscan_bp.post("/patients/<int:pid>/import-file")
 @bioscan_bp.post("/patients/<int:pid>/import-pdf")   # alias legado
-@require_role("doctor")
+@require_role("doctor", "secretary")
 def import_file(pid):
     """
     Importa medição de arquivo Tanita/InBody via Groq Vision.
@@ -915,7 +1168,7 @@ Interprete com foco em healthspan: qualidade de vida a longo prazo, risco metab�
 # ── PDF REPORT ───────────────────────────────────────────────────────────
 
 @bioscan_bp.get("/patients/<int:pid>/report")
-@require_role("doctor")
+@require_role("doctor", "secretary")
 def patient_report_pdf(pid):
     """
     Gera relatório PDF completo do paciente e retorna para download.
@@ -953,7 +1206,7 @@ def patient_report_pdf(pid):
 # ── AUDIT LOG ENDPOINTS ───────────────────────────────────────────────────
 
 @bioscan_bp.get("/audit-logs")
-@require_role("doctor")
+@require_role("doctor", "secretary")
 def list_audit_logs():
     """
     Lista os logs de auditoria mais recentes.
@@ -979,7 +1232,7 @@ def list_audit_logs():
 
 
 @bioscan_bp.get("/patients/<int:pid>/audit-logs")
-@require_role("doctor")
+@require_role("doctor", "secretary")
 def patient_audit_logs(pid):
     """Lista todos os logs de auditoria relacionados a um paciente específico."""
     db.get_or_404(Patient, pid)

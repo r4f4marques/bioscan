@@ -19,11 +19,19 @@ class User(db.Model):
     email         = db.Column(db.String(120), unique=True, nullable=False, index=True)
     password_hash = db.Column(db.String(256), nullable=True)
     role          = db.Column(db.String(20), nullable=False, default="doctor")
+    # roles válidos: "doctor", "secretary", "patient"
 
     name          = db.Column(db.String(120))
     birth_date    = db.Column(db.Date, nullable=True)
     created_at    = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
     is_active     = db.Column(db.Boolean, default=True)
+
+    # Privilégios administrativos — pode gerenciar outros profissionais
+    is_admin      = db.Column(db.Boolean, default=False, nullable=False)
+
+    # Token de primeiro-acesso/reset (sem SMTP: admin copia e envia manualmente)
+    reset_token       = db.Column(db.String(64), nullable=True, index=True)
+    reset_token_expires = db.Column(db.DateTime, nullable=True)
 
     patient_id    = db.Column(db.Integer, db.ForeignKey("patients.id"), nullable=True)
 
@@ -54,6 +62,8 @@ class User(db.Model):
             "role":       self.role,
             "name":       self.name,
             "patient_id": self.patient_id,
+            "is_admin":   self.is_admin,
+            "is_active":  self.is_active,
         }
 
 
