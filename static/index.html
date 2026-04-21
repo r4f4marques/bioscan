@@ -901,6 +901,117 @@ function renderMuscleOrFFMCard(m) {
   </div>`;
 }
 
+// Card resumo em linguagem leiga para paciente (sem IA, sem jargão técnico)
+function renderPatientFriendlyCard(m, p) {
+  const items = [];
+
+  // Peso + IMC
+  if (m.weight && m.bmi) {
+    const bmiSt = bmiStatus(m.bmi);
+    const msg = bmiSt === 'ok' ? 'Seu peso está na <strong>faixa ideal</strong> para sua altura.'
+              : bmiSt === 'warn' ? 'Seu peso está <strong>um pouco acima</strong> do ideal — sobrepeso leve.'
+              : 'Seu peso está <strong>acima do ideal</strong>. Converse com seu médico sobre um plano.';
+    items.push({ icon: '⚖️', msg });
+  }
+
+  // Gordura corporal
+  if (m.fat_pct != null) {
+    const st = fatStatus(m.fat_pct, p.sex);
+    const msg = st === 'ok' ? 'Seu percentual de gordura corporal está <strong>saudável</strong>.'
+              : st === 'warn' ? 'Seu percentual de gordura está <strong>um pouco acima</strong> do recomendado.'
+              : 'Seu percentual de gordura está <strong>elevado</strong>. Atividade física e alimentação podem ajudar.';
+    items.push({ icon: '🔥', msg });
+  }
+
+  // Visceral
+  if (m.visceral != null) {
+    const st = viscStatus(m.visceral);
+    const msg = st === 'ok' ? 'Sua gordura visceral (ao redor dos órgãos) está em <strong>nível saudável</strong>.'
+              : st === 'warn' ? 'Sua gordura visceral está <strong>em alerta</strong>. Vale reduzir abdômen com exercícios.'
+              : 'Sua gordura visceral está <strong>alta</strong>. Importante consultar seu médico.';
+    items.push({ icon: '❤️', msg });
+  }
+
+  // Água
+  if (m.water_pct != null) {
+    if (m.water_pct < 50) {
+      items.push({ icon: '💧', msg: 'Sua hidratação corporal está <strong>baixa</strong>. Beba mais água ao longo do dia.' });
+    } else if (m.water_pct <= 65) {
+      items.push({ icon: '💧', msg: 'Sua hidratação corporal está <strong>boa</strong>.' });
+    }
+  }
+
+  const itemsHTML = items.map(it => `
+    <div style="display:flex;gap:12px;align-items:flex-start;padding:10px 0;border-bottom:0.5px solid #f0f0f0">
+      <div style="font-size:18px">${it.icon}</div>
+      <div style="font-size:var(--fs-sm);line-height:1.5;color:#333">${it.msg}</div>
+    </div>`).join('');
+
+  return `
+    <div class="card">
+      <div class="card-title">Seu resumo</div>
+      ${itemsHTML || '<div style="color:#999;font-size:var(--fs-sm)">Dados insuficientes para gerar resumo.</div>'}
+      <div style="margin-top:1rem;padding:10px 12px;background:#f0f4ff;border-radius:6px;font-size:var(--fs-xs);color:#1a4fa8;line-height:1.5">
+        Este resumo é uma orientação geral. Para interpretação clínica detalhada, consulte seu médico.
+      </div>
+    </div>`;
+}
+
+// Card de comparação destacada com medição anterior
+function renderComparisonCard(curr, prev, p) {
+  const prevDate = fmtDateBR(prev.measured_at);
+  const currDate = fmtDateBR(curr.measured_at);
+
+  const changes = [];
+
+  const addChange = (label, oldVal, newVal, unit, decimals, betterIs) => {
+    if (oldVal == null || newVal == null) return;
+    const delta = newVal - oldVal;
+    if (Math.abs(delta) < 0.01) return;
+    const absD = Math.abs(delta).toFixed(decimals);
+    const sign = delta > 0 ? '+' : '−';
+    // Determina se a variação é favorável
+    let color = '#666';
+    let emoji = '→';
+    if (betterIs === 'less') {
+      color = delta < 0 ? '#2d6a1f' : '#c0392b';
+      emoji = delta < 0 ? '↓' : '↑';
+    } else if (betterIs === 'more') {
+      color = delta > 0 ? '#2d6a1f' : '#c0392b';
+      emoji = delta > 0 ? '↑' : '↓';
+    }
+    changes.push({
+      label, oldVal, newVal, sign, absD, unit, color, emoji, decimals,
+    });
+  };
+
+  addChange('Peso',           prev.weight,   curr.weight,   'kg', 1, null);
+  addChange('Gordura',        prev.fat_pct,  curr.fat_pct,  '%',  1, 'less');
+  addChange('Músculo',        prev.muscle_kg ?? prev.ffm_kg, curr.muscle_kg ?? curr.ffm_kg, 'kg', 1, 'more');
+  addChange('Visceral',       prev.visceral, curr.visceral, '',   0, 'less');
+
+  if (!changes.length) return '';
+
+  const cards = changes.map(c => `
+    <div style="flex:1;min-width:140px;padding:1rem;background:#fafaf8;border-radius:8px">
+      <div style="font-size:var(--fs-xs);color:#999;margin-bottom:4px">${c.label}</div>
+      <div style="font-size:var(--fs-base);font-weight:500;color:${c.color}">
+        ${c.emoji} ${c.sign}${c.absD}${c.unit}
+      </div>
+      <div style="font-size:var(--fs-xs);color:#666;margin-top:4px">
+        ${c.oldVal.toFixed(c.decimals)}${c.unit} → ${c.newVal.toFixed(c.decimals)}${c.unit}
+      </div>
+    </div>`).join('');
+
+  return `
+    <div class="card" style="margin-bottom:1rem">
+      <div class="card-title">Variação desde a medição anterior <small>${prevDate} → ${currDate}</small></div>
+      <div style="display:flex;flex-wrap:wrap;gap:10px">
+        ${cards}
+      </div>
+    </div>`;
+}
+
 // Card principal: mostra Idade metabólica (Tanita) OU Pontuação InBody (fallback)
 function renderAgeOrScoreCard(m, p) {
   const age = p.age ?? '—';
@@ -1042,7 +1153,7 @@ function renderOverview() {
     return;
   }
 
-  // Card secundário direito: interpretação IA (médico) / ações (secretária) / resumo (paciente)
+  // Card secundário direito: interpretação IA (médico) / ações (secretária) / resumo leigo (paciente)
   let secondaryCard;
   if (isDoctor) {
     secondaryCard = `
@@ -1064,17 +1175,14 @@ function renderOverview() {
         <button class="btn" style="width:100%" onclick="downloadReport()">↓ Baixar relatório PDF</button>
       </div>`;
   } else {
-    secondaryCard = `
-      <div class="card">
-        <div class="card-title">Resumo clínico</div>
-        <div style="font-size:var(--fs-sm);color:#666;line-height:1.7">
-          Seus dados foram analisados pela equipe médica.<br>
-          Para interpretação detalhada, consulte seu médico.
-        </div>
-      </div>`;
+    secondaryCard = renderPatientFriendlyCard(m, p);
   }
 
-  document.getElementById('content').innerHTML = renderManufacturerToggle(p) + `
+  // Card de comparação com medição anterior (se houver 2+ medições)
+  const prev = ms.length >= 2 ? ms[ms.length - 2] : null;
+  const comparisonCard = prev ? renderComparisonCard(m, prev, p) : '';
+
+  document.getElementById('content').innerHTML = renderManufacturerToggle(p) + comparisonCard + `
     <div class="grid grid-4">
       <div class="mcard"><div class="mcard-label">Peso</div><div class="mcard-val">${m.weight?.toFixed(1) ?? '—'}<span class="mcard-unit">kg</span></div><div class="mcard-sub">IMC ${m.bmi?.toFixed(1) ?? '—'}${m.bmi ? ' · <span class="badge ' + bmiStatus(m.bmi) + '">' + bl(bmiStatus(m.bmi)) + '</span>' : ''}</div></div>
       <div class="mcard"><div class="mcard-label">Gordura corporal</div><div class="mcard-val">${m.fat_pct?.toFixed(1) ?? '—'}<span class="mcard-unit">%</span></div>${m.fat_pct != null ? '<span class="badge ' + fatStatus(m.fat_pct, p.sex) + '">' + bl(fatStatus(m.fat_pct, p.sex)) + '</span>' : ''}</div>
@@ -1790,7 +1898,7 @@ function renderUpload() {
 
       <div class="card">
         <div class="card-title">Importar medição</div>
-        <div class="grid grid-2" style="gap:12px">
+        <div class="grid grid-3" style="gap:12px">
           <div class="upload-zone" onclick="openCSVPicker()" style="padding:1.5rem">
             <div style="font-size:20px;margin-bottom:.4rem">📄</div>
             <div style="font-size:var(--fs-sm);font-weight:500;color:#1a1a18">Arquivo CSV</div>
@@ -1799,11 +1907,17 @@ function renderUpload() {
           <div class="upload-zone" onclick="openFilePicker()" style="padding:1.5rem">
             <div style="font-size:20px;margin-bottom:.4rem">📑</div>
             <div style="font-size:var(--fs-sm);font-weight:500;color:#1a1a18">PDF ou imagem</div>
-            <div style="font-size:var(--fs-xs);color:#999;margin-top:3px">Tanita ou InBody — PDF, JPG, PNG, HEIC (via IA)</div>
+            <div style="font-size:var(--fs-xs);color:#999;margin-top:3px">Um arquivo · PDF, JPG, PNG, HEIC</div>
+          </div>
+          <div class="upload-zone" onclick="openBatchPicker()" style="padding:1.5rem">
+            <div style="font-size:20px;margin-bottom:.4rem">📚</div>
+            <div style="font-size:var(--fs-sm);font-weight:500;color:#1a1a18">Múltiplos arquivos</div>
+            <div style="font-size:var(--fs-xs);color:#999;margin-top:3px">Até 20 arquivos · PDF, JPG, PNG, HEIC</div>
           </div>
         </div>
         <input type="file" id="csvfile" accept=".csv" style="display:none" onchange="uploadCSV(this)">
         <input type="file" id="filefile" accept="application/pdf,image/*,.heic,.heif" style="display:none" onchange="uploadFile(this)">
+        <input type="file" id="batchfile" accept="application/pdf,image/*,.heic,.heif" multiple style="display:none" onchange="uploadBatch(this)">
         <div id="upload-result"></div>
       </div>
 
@@ -2027,6 +2141,324 @@ async function uploadFile(input) {
 
   // Abre tela de preview editável com os dados extraídos
   openImportPreview(patient, data);
+}
+
+// ── BATCH DE ARQUIVOS ─────────────────────────────────────────────────────
+
+// Estado do batch (persiste durante o fluxo)
+let batchResults = [];   // [{file, status, data, error}]
+let batchPid = null;
+
+function openBatchPicker() {
+  const result = document.getElementById('upload-result');
+  if (!window._uploadPid) {
+    result.innerHTML = '<div class="error-box">Selecione um paciente antes de importar.</div>';
+    return;
+  }
+  result.innerHTML = '';
+  document.getElementById('batchfile').click();
+}
+
+async function uploadBatch(input) {
+  const files = Array.from(input.files || []);
+  if (!files.length) return;
+
+  if (files.length > 20) {
+    alert(`Máximo 20 arquivos por vez (você selecionou ${files.length}).`);
+    input.value = '';
+    return;
+  }
+
+  const pid = window._uploadPid;
+  batchPid = pid;
+  input.value = '';
+
+  // Abre tela dedicada ao batch
+  renderBatchScreen(files);
+
+  // Inicializa resultados com estado "pendente"
+  batchResults = files.map((f, i) => ({
+    idx: i,
+    file: f,
+    filename: f.name,
+    status: 'pending',  // pending | processing | ok | error | duplicate
+    data: null,
+    error: null,
+  }));
+
+  renderBatchList();
+
+  // Processa arquivos sequencialmente (evita sobrecarregar Groq API com 20 em paralelo)
+  for (let i = 0; i < files.length; i++) {
+    batchResults[i].status = 'processing';
+    renderBatchList();
+
+    try {
+      const form = new FormData();
+      form.append('file', files[i]);
+      const data = await api('POST', `/bioscan/patients/${pid}/parse-file`, form, true);
+
+      if (data && data.error) {
+        batchResults[i].status = 'error';
+        batchResults[i].error = data.error;
+      } else if (data) {
+        batchResults[i].status = data.duplicate_warning ? 'duplicate' : 'ok';
+        batchResults[i].data = data;
+      } else {
+        batchResults[i].status = 'error';
+        batchResults[i].error = 'Sem resposta da API';
+      }
+    } catch (e) {
+      batchResults[i].status = 'error';
+      batchResults[i].error = e.message || 'Erro desconhecido';
+    }
+
+    renderBatchList();
+  }
+
+  // Processamento concluído — atualiza contador no topo
+  renderBatchSummary();
+}
+
+function renderBatchScreen(files) {
+  destroyCharts();
+  setNav(null);
+  document.getElementById('topbar-title').textContent = `Importação em lote (${files.length})`;
+  document.getElementById('topbar-actions').innerHTML = `
+    <button class="btn" onclick="cancelBatch()">← Cancelar</button>`;
+
+  document.getElementById('content').innerHTML = `
+    <div class="card" id="batch-summary" style="margin-bottom:1rem">
+      <div style="color:#666;font-size:var(--fs-sm)">Processando ${files.length} arquivo(s)...</div>
+    </div>
+    <div class="card">
+      <div class="card-title">Arquivos selecionados</div>
+      <div id="batch-list"></div>
+    </div>`;
+}
+
+function renderBatchList() {
+  const list = document.getElementById('batch-list');
+  if (!list) return;
+
+  const statusBadge = (r) => {
+    switch (r.status) {
+      case 'pending':    return '<span style="color:#bbb">Aguardando…</span>';
+      case 'processing': return '<span style="color:#1a6fa8">⏳ Processando…</span>';
+      case 'ok':         return '<span class="badge ok">✓ Pronto</span>';
+      case 'error':      return '<span class="badge alert">✕ Erro</span>';
+      case 'duplicate':  return '<span class="badge warn">⚠ Duplicata</span>';
+    }
+  };
+
+  const infoLine = (r) => {
+    if (r.status === 'ok' || r.status === 'duplicate') {
+      const d = r.data.extracted || {};
+      const parts = [];
+      if (d.measured_at) parts.push(fmtDateBR(d.measured_at));
+      if (r.data.manufacturer) parts.push(r.data.manufacturer === 'tanita' ? 'Tanita' : r.data.manufacturer === 'inbody' ? 'InBody' : r.data.manufacturer);
+      if (d.weight) parts.push(`${d.weight.toFixed(1)} kg`);
+      if (d.fat_pct) parts.push(`${d.fat_pct.toFixed(1)}% gordura`);
+      return `<div style="font-size:var(--fs-xs);color:#666;margin-top:3px">${parts.join(' · ')}</div>`;
+    }
+    if (r.status === 'error') {
+      return `<div style="font-size:var(--fs-xs);color:#c0392b;margin-top:3px">${r.error}</div>`;
+    }
+    if (r.status === 'duplicate') {
+      return `<div style="font-size:var(--fs-xs);color:#b07410;margin-top:3px">${r.data.duplicate_warning}</div>`;
+    }
+    return '';
+  };
+
+  list.innerHTML = batchResults.map((r, idx) => `
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:12px;border-bottom:0.5px solid #f0f0f0;gap:8px">
+      <div style="flex:1;min-width:0">
+        <div style="font-size:var(--fs-sm);font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.filename}</div>
+        ${infoLine(r)}
+      </div>
+      <div style="text-align:right;white-space:nowrap;display:flex;gap:6px;align-items:center">
+        ${statusBadge(r)}
+        ${(r.status === 'ok' || r.status === 'duplicate')
+          ? `<button class="btn" style="padding:3px 8px;font-size:var(--fs-xs)" onclick="reviewBatchItem(${idx})">Revisar</button>`
+          : ''}
+        ${(r.status !== 'processing')
+          ? `<button class="btn" style="padding:3px 8px;font-size:var(--fs-xs);color:#c0392b" onclick="removeBatchItem(${idx})" title="Remover da lista">✕</button>`
+          : ''}
+      </div>
+    </div>
+  `).join('');
+}
+
+function renderBatchSummary() {
+  const summary = document.getElementById('batch-summary');
+  if (!summary) return;
+
+  const ok = batchResults.filter(r => r.status === 'ok').length;
+  const dup = batchResults.filter(r => r.status === 'duplicate').length;
+  const err = batchResults.filter(r => r.status === 'error').length;
+  const savable = ok + dup;
+
+  summary.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
+      <div style="font-size:var(--fs-sm)">
+        <strong>${ok}</strong> prontos${dup ? `, <strong>${dup}</strong> com aviso de duplicata` : ''}${err ? `, <strong>${err}</strong> com erro` : ''}
+      </div>
+      ${savable > 0 ? `
+        <button class="btn btn-primary" onclick="saveAllBatch()">
+          ✓ Salvar ${savable} medição(ões) no banco
+        </button>` : `
+        <div style="color:#999;font-size:var(--fs-sm)">Nenhum arquivo pronto para salvar.</div>`}
+    </div>`;
+}
+
+function removeBatchItem(idx) {
+  if (!confirm(`Remover "${batchResults[idx].filename}" da lista?`)) return;
+  batchResults.splice(idx, 1);
+  // Reordena índices
+  batchResults.forEach((r, i) => r.idx = i);
+  renderBatchList();
+  renderBatchSummary();
+}
+
+function reviewBatchItem(idx) {
+  const r = batchResults[idx];
+  if (!r || !r.data) return;
+
+  // Guarda índice para voltar depois de salvar/cancelar
+  window._batchReviewIdx = idx;
+
+  // Setup do editor (reusa estrutura existente)
+  editingMeasurement = { ...r.data.extracted };
+  editingPid = batchPid;
+  editingOriginalId = null;  // null = novo
+  window._importMeta = {
+    manufacturer: r.data.manufacturer,
+    detected_name: r.data.detected_name,
+    file_type: r.data.file_type,
+    original_filename: r.filename,
+    duplicate_warning: r.data.duplicate_warning,
+  };
+
+  // Busca paciente (pode já estar em currentPatient)
+  if (!currentPatient || currentPatient.id !== batchPid) {
+    api('GET', `/bioscan/patients/${batchPid}`).then(p => {
+      if (p) {
+        currentPatient = p;
+        renderBatchReviewEditor(p, idx);
+      }
+    });
+  } else {
+    renderBatchReviewEditor(currentPatient, idx);
+  }
+}
+
+function renderBatchReviewEditor(patient, idx) {
+  // Reusa o editor de preview, mas com botão "Salvar alterações no lote" em vez de "Salvar"
+  renderImportPreviewEditor(patient);
+
+  // Sobrescreve botões da topbar
+  document.getElementById('topbar-actions').innerHTML = `
+    <button class="btn" onclick="backToBatchList()">← Voltar ao lote</button>
+    <button class="btn btn-primary" onclick="saveBatchItemEdits(${idx})">✓ Aplicar alterações</button>`;
+}
+
+function saveBatchItemEdits(idx) {
+  // Atualiza o data.extracted do item no batch com os dados editados
+  batchResults[idx].data.extracted = { ...editingMeasurement };
+  batchResults[idx].data._edited = true;
+
+  editingMeasurement = null;
+  window._importMeta = null;
+
+  backToBatchList();
+}
+
+function backToBatchList() {
+  // Volta para a tela do batch sem perder os resultados
+  document.getElementById('topbar-title').textContent = `Importação em lote (${batchResults.length})`;
+  document.getElementById('topbar-actions').innerHTML = `
+    <button class="btn" onclick="cancelBatch()">← Cancelar</button>`;
+
+  document.getElementById('content').innerHTML = `
+    <div class="card" id="batch-summary" style="margin-bottom:1rem"></div>
+    <div class="card">
+      <div class="card-title">Arquivos processados</div>
+      <div id="batch-list"></div>
+    </div>`;
+
+  renderBatchList();
+  renderBatchSummary();
+}
+
+async function saveAllBatch() {
+  const savable = batchResults.filter(r => r.status === 'ok' || r.status === 'duplicate');
+  if (!savable.length) {
+    alert('Nenhum arquivo pronto para salvar.');
+    return;
+  }
+
+  if (!confirm(`Salvar ${savable.length} medição(ões) no banco?\n\nMedições com aviso de duplicata serão rejeitadas pelo servidor (data já existente).`)) {
+    return;
+  }
+
+  let saved = 0;
+  let failed = 0;
+  const failures = [];
+
+  for (const r of savable) {
+    const payload = { ...r.data.extracted, _edited_in_preview: !!r.data._edited };
+    try {
+      const result = await api('POST', `/bioscan/patients/${batchPid}/save-measurement`, payload);
+      if (result && !result.error) {
+        saved++;
+        r.status = 'saved';
+      } else {
+        failed++;
+        failures.push(`${r.filename}: ${result?.error || 'erro desconhecido'}`);
+        r.status = 'error';
+        r.error = result?.error || 'erro ao salvar';
+      }
+    } catch (e) {
+      failed++;
+      failures.push(`${r.filename}: ${e.message}`);
+      r.status = 'error';
+      r.error = e.message;
+    }
+    renderBatchList();
+  }
+
+  // Relatório final
+  const msg = `${saved} medição(ões) salva(s) com sucesso${failed ? `. ${failed} falharam.` : '.'}`;
+  if (failures.length) {
+    alert(msg + '\n\nErros:\n' + failures.join('\n'));
+  } else {
+    alert(msg);
+  }
+
+  // Se tudo salvou, volta para a tela de upload
+  if (failed === 0) {
+    batchResults = [];
+    batchPid = null;
+    showScreen('upload');
+    setTimeout(() => {
+      const resEl = document.getElementById('upload-result');
+      if (resEl) {
+        resEl.innerHTML = `<div class="success-box">✓ ${saved} medição(ões) importada(s) em lote com sucesso!</div>`;
+      }
+      if (window._uploadPid) loadPatientMeasurements(window._uploadPid);
+    }, 100);
+  } else {
+    // Atualiza tela com status final
+    renderBatchSummary();
+  }
+}
+
+function cancelBatch() {
+  if (batchResults.length && !confirm('Descartar lote? Todos os arquivos processados serão perdidos.')) return;
+  batchResults = [];
+  batchPid = null;
+  window._batchReviewIdx = null;
+  showScreen('upload');
 }
 
 // ── PREVIEW EDITÁVEL DE IMPORTAÇÃO ────────────────────────────────────────
