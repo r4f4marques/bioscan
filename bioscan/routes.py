@@ -229,8 +229,13 @@ def reset_password():
     if not user:
         return jsonify({"error": "Token inválido ou já utilizado"}), 401
 
-    if user.reset_token_expires and user.reset_token_expires < datetime.now(timezone.utc):
-        return jsonify({"error": "Token expirado. Solicite um novo ao administrador."}), 401
+    if user.reset_token_expires:
+        # Garante comparação tz-aware (Postgres pode retornar naive)
+        expires = user.reset_token_expires
+        if expires.tzinfo is None:
+            expires = expires.replace(tzinfo=timezone.utc)
+        if expires < datetime.now(timezone.utc):
+            return jsonify({"error": "Token expirado. Solicite um novo ao administrador."}), 401
 
     user.set_password(new_password)
     user.reset_token = None
