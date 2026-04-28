@@ -252,6 +252,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       <div class="nav-item" id="nav-overview" onclick="showTab('overview')">○ Visão geral</div>
       <div class="nav-item" id="nav-evolution" onclick="showTab('evolution')">↗ Evolução</div>
       <div class="nav-item" id="nav-segments" onclick="showTab('segments')">◫ Segmental</div>
+      <div class="nav-item" id="nav-comparative" onclick="showTab('comparative')">▤ Comparativo</div>
     </div>
   </div>
   <div class="sidebar-footer">
@@ -524,13 +525,14 @@ function renderAuditLog(logs) {
 
 function showTab(tab) {
   destroyCharts();
-  ['overview','evolution','segments'].forEach(t => {
+  ['overview','evolution','segments','comparative'].forEach(t => {
     const el = document.getElementById('nav-' + t);
     if (el) el.classList.toggle('active', t === tab);
   });
   if (tab === 'overview') renderOverview();
   else if (tab === 'evolution') renderEvolution();
   else if (tab === 'segments') renderSegments();
+  else if (tab === 'comparative') renderComparative();
 }
 
 // ── HELPERS ───────────────────────────────────────────────────────────────
@@ -609,6 +611,7 @@ function setManufacturerFilter(key) {
   if (activeTab === 'nav-overview')       showTab('overview');
   else if (activeTab === 'nav-evolution') showTab('evolution');
   else if (activeTab === 'nav-segments')  showTab('segments');
+  else if (activeTab === 'nav-comparative') showTab('comparative');
 }
 
 // Formata uma data ISO (YYYY-MM-DD ou YYYY-MM-DDTHH:MM:SS...) para DD/MM/YYYY
@@ -1731,6 +1734,209 @@ function renderSegments() {
 
   renderBodyDual(m);
   renderSegDetail(m);
+}
+
+// ── COMPARATIVE — tabela com todas as medições lado a lado ───────────────
+
+// Definição de TODOS os parâmetros, agrupados por categoria
+const COMPARATIVE_GROUPS = [
+  {
+    title: 'Composição corporal',
+    rows: [
+      { key: 'weight',          label: 'Peso',                unit: 'kg',    decimals: 1, betterIs: null,    statusFn: null },
+      { key: 'bmi',             label: 'IMC',                 unit: 'kg/m²', decimals: 1, betterIs: null,    statusFn: (v) => bmiStatus(v) },
+      { key: 'fat_pct',         label: 'Gordura corporal',    unit: '%',     decimals: 1, betterIs: 'less',  statusFn: (v, p) => fatStatus(v, p.sex) },
+      { key: 'visceral',        label: 'Gordura visceral',    unit: '',      decimals: 1, betterIs: 'less',  statusFn: (v) => viscStatus(v) },
+      { key: 'muscle_kg',       label: 'Músculo esquelético', unit: 'kg',    decimals: 2, betterIs: 'more',  statusFn: null },
+      { key: 'muscle_quality',  label: 'Qualidade muscular',  unit: '',      decimals: 0, betterIs: 'more',  statusFn: null },
+      { key: 'ffm_kg',          label: 'Massa magra (FFM)',   unit: 'kg',    decimals: 1, betterIs: 'more',  statusFn: null },
+      { key: 'bone_kg',         label: 'Massa óssea',         unit: 'kg',    decimals: 2, betterIs: null,    statusFn: null },
+    ]
+  },
+  {
+    title: 'Hidratação e metabolismo',
+    rows: [
+      { key: 'water_pct',        label: 'Água corporal',        unit: '%',    decimals: 1, betterIs: 'more', statusFn: null },
+      { key: 'water_kg',         label: 'Água (kg)',            unit: 'kg',   decimals: 1, betterIs: 'more', statusFn: null },
+      { key: 'protein_kg',       label: 'Proteína',             unit: 'kg',   decimals: 2, betterIs: 'more', statusFn: null },
+      { key: 'mineral_kg',       label: 'Minerais',             unit: 'kg',   decimals: 2, betterIs: null,   statusFn: null },
+      { key: 'bmr',              label: 'Metabolismo basal',    unit: 'kcal', decimals: 0, betterIs: null,   statusFn: null },
+      { key: 'meta_age',         label: 'Idade metabólica',     unit: 'anos', decimals: 0, betterIs: 'less', statusFn: null },
+      { key: 'recommended_kcal', label: 'Ingestão recomendada', unit: 'kcal', decimals: 0, betterIs: null,   statusFn: null },
+      { key: 'heart_rate',       label: 'Frequência cardíaca',  unit: 'bpm',  decimals: 0, betterIs: null,   statusFn: null },
+    ]
+  },
+  {
+    title: 'Índices avançados',
+    rows: [
+      { key: 'smi',              label: 'SMI',                 unit: 'kg/m²', decimals: 2, betterIs: 'more', statusFn: null },
+      { key: 'waist_hip_ratio',  label: 'Cintura/quadril',     unit: '',      decimals: 2, betterIs: 'less', statusFn: null },
+      { key: 'obesity_degree',   label: 'Grau de obesidade',   unit: '%',     decimals: 0, betterIs: 'less', statusFn: null },
+      { key: 'inbody_score',     label: 'Pontuação InBody',    unit: '/100',  decimals: 0, betterIs: 'more', statusFn: null },
+      { key: 'physique_rating',  label: 'Physique rating',     unit: '',      decimals: 0, betterIs: null,   statusFn: null },
+    ]
+  },
+  {
+    title: 'Massa muscular segmental (kg)',
+    rows: [
+      { key: 'seg_musc_right_arm', label: 'Braço direito',  unit: 'kg', decimals: 2, betterIs: 'more', statusFn: null },
+      { key: 'seg_musc_left_arm',  label: 'Braço esquerdo', unit: 'kg', decimals: 2, betterIs: 'more', statusFn: null },
+      { key: 'seg_musc_right_leg', label: 'Perna direita',  unit: 'kg', decimals: 2, betterIs: 'more', statusFn: null },
+      { key: 'seg_musc_left_leg',  label: 'Perna esquerda', unit: 'kg', decimals: 2, betterIs: 'more', statusFn: null },
+      { key: 'seg_musc_trunk',     label: 'Tronco',         unit: 'kg', decimals: 2, betterIs: 'more', statusFn: null },
+    ]
+  },
+  {
+    title: 'Gordura segmental (%)',
+    rows: [
+      { key: 'seg_fat_right_arm', label: 'Braço direito',  unit: '%', decimals: 1, betterIs: 'less', statusFn: null, useSegFat: 'right_arm' },
+      { key: 'seg_fat_left_arm',  label: 'Braço esquerdo', unit: '%', decimals: 1, betterIs: 'less', statusFn: null, useSegFat: 'left_arm' },
+      { key: 'seg_fat_right_leg', label: 'Perna direita',  unit: '%', decimals: 1, betterIs: 'less', statusFn: null, useSegFat: 'right_leg' },
+      { key: 'seg_fat_left_leg',  label: 'Perna esquerda', unit: '%', decimals: 1, betterIs: 'less', statusFn: null, useSegFat: 'left_leg' },
+      { key: 'seg_fat_trunk',     label: 'Tronco',         unit: '%', decimals: 1, betterIs: 'less', statusFn: null, useSegFat: 'trunk' },
+    ]
+  },
+  {
+    title: 'Qualidade muscular segmental',
+    rows: [
+      { key: 'seg_qual_right_arm', label: 'Braço direito',  unit: '', decimals: 0, betterIs: 'more', statusFn: null },
+      { key: 'seg_qual_left_arm',  label: 'Braço esquerdo', unit: '', decimals: 0, betterIs: 'more', statusFn: null },
+      { key: 'seg_qual_right_leg', label: 'Perna direita',  unit: '', decimals: 0, betterIs: 'more', statusFn: null },
+      { key: 'seg_qual_left_leg',  label: 'Perna esquerda', unit: '', decimals: 0, betterIs: 'more', statusFn: null },
+      { key: 'seg_qual_trunk',     label: 'Tronco',         unit: '', decimals: 0, betterIs: 'more', statusFn: null },
+    ]
+  },
+];
+
+// Lê valor de uma medição considerando seg_fat (que usa o objeto seg_fat normalizado)
+function getMeasurementValue(m, row) {
+  if (row.useSegFat) {
+    return m.seg_fat?.[row.useSegFat] ?? null;
+  }
+  return m[row.key] ?? null;
+}
+
+// Renderiza a célula com valor + indicador de variação vs medição anterior
+function comparativeCellHTML(value, prevValue, row, patient) {
+  if (value == null) {
+    return '<span style="color:#bbb">—</span>';
+  }
+  const valStr = `${value.toFixed(row.decimals)}${row.unit ? ' ' + row.unit : ''}`;
+
+  // Status badge se aplicável
+  let badge = '';
+  if (row.statusFn) {
+    const st = row.statusFn(value, patient);
+    if (st) {
+      badge = ` <span class="badge ${st}" style="padding:1px 5px;font-size:10px">${bl(st)}</span>`;
+    }
+  }
+
+  // Indicador de variação vs medição anterior
+  let arrow = '';
+  if (prevValue != null && row.betterIs) {
+    const delta = value - prevValue;
+    if (Math.abs(delta) >= Math.pow(10, -row.decimals) / 2) {
+      const isBetter = (row.betterIs === 'more' && delta > 0) || (row.betterIs === 'less' && delta < 0);
+      const color = isBetter ? '#2d6a1f' : '#c0392b';
+      const symbol = delta > 0 ? '↑' : '↓';
+      const absDelta = Math.abs(delta).toFixed(row.decimals);
+      arrow = ` <span style="color:${color};font-size:11px;white-space:nowrap" title="Variação: ${delta > 0 ? '+' : '−'}${absDelta}">${symbol}${absDelta}</span>`;
+    }
+  } else if (prevValue != null && !row.betterIs) {
+    // Sem direção "melhor", só mostra a variação em cinza
+    const delta = value - prevValue;
+    if (Math.abs(delta) >= Math.pow(10, -row.decimals) / 2) {
+      const symbol = delta > 0 ? '↑' : '↓';
+      const absDelta = Math.abs(delta).toFixed(row.decimals);
+      arrow = ` <span style="color:#999;font-size:11px;white-space:nowrap">${symbol}${absDelta}</span>`;
+    }
+  }
+
+  return `<span style="white-space:nowrap">${valStr}${badge}${arrow}</span>`;
+}
+
+function renderComparative() {
+  const patient = currentPatient;
+  const ms = getFilteredMeasurements(patient);
+
+  if (!ms.length) {
+    document.getElementById('content').innerHTML = renderManufacturerToggle(patient) +
+      `<div class="loading">Nenhuma medição encontrada${currentManufacturer !== 'all' ? ' para este fabricante' : ''}.</div>`;
+    return;
+  }
+
+  if (ms.length < 2) {
+    document.getElementById('content').innerHTML = renderManufacturerToggle(patient) + `
+      <div class="card" style="text-align:center;padding:2rem;color:#bbb">
+        Análise comparativa requer pelo menos 2 medições.<br>
+        <small>Atualmente há apenas 1 medição.</small>
+      </div>`;
+    return;
+  }
+
+  // Para cada grupo, filtra linhas que têm pelo menos 1 valor preenchido em alguma medição
+  const visibleGroups = COMPARATIVE_GROUPS.map(group => {
+    const visibleRows = group.rows.filter(row =>
+      ms.some(m => getMeasurementValue(m, row) != null)
+    );
+    return { ...group, rows: visibleRows };
+  }).filter(g => g.rows.length > 0);
+
+  // Cabeçalho: 1 col fixa para parâmetro + N cols de medições (mais antiga → mais recente)
+  const dateHeaders = ms.map(m => `
+    <th style="text-align:right;padding:8px 10px;font-weight:500;color:#666;font-size:var(--fs-xs);white-space:nowrap;border-bottom:1px solid #e0e0e0">
+      ${fmtDateBR(m.measured_at)}
+      ${m.source ? `<div style="font-weight:400;color:#bbb;font-size:10px;margin-top:2px">${m.source}</div>` : ''}
+    </th>
+  `).join('');
+
+  const groupsHTML = visibleGroups.map(group => {
+    const rowsHTML = group.rows.map(row => {
+      const cells = ms.map((m, i) => {
+        const value = getMeasurementValue(m, row);
+        const prev = i > 0 ? getMeasurementValue(ms[i - 1], row) : null;
+        return `<td style="text-align:right;padding:8px 10px;font-size:var(--fs-sm);border-bottom:0.5px solid #f0f0f0">${comparativeCellHTML(value, prev, row, patient)}</td>`;
+      }).join('');
+
+      return `
+        <tr>
+          <td style="padding:8px 10px;font-size:var(--fs-sm);color:#333;border-bottom:0.5px solid #f0f0f0;white-space:nowrap">
+            ${row.label}
+          </td>
+          ${cells}
+        </tr>`;
+    }).join('');
+
+    return `
+      <tr>
+        <td colspan="${ms.length + 1}" style="padding:14px 10px 6px;font-size:var(--fs-sm);font-weight:600;color:#1a1a18;background:#fafaf8;border-top:1px solid #e0e0e0">
+          ${group.title}
+        </td>
+      </tr>
+      ${rowsHTML}`;
+  }).join('');
+
+  document.getElementById('content').innerHTML = renderManufacturerToggle(patient) + `
+    <div class="card" style="overflow-x:auto;padding:0">
+      <div style="padding:1rem 1.25rem;border-bottom:1px solid #e0e0e0">
+        <div class="card-title" style="margin:0">Análise comparativa <small>${ms.length} medições · da mais antiga à mais recente</small></div>
+        <div style="font-size:var(--fs-xs);color:#999;margin-top:6px">
+          Setas verdes/vermelhas indicam melhora/piora vs medição anterior. Setas cinzas: variação sem direção definida.
+        </div>
+      </div>
+      <table style="width:100%;border-collapse:collapse;min-width:${300 + ms.length * 130}px">
+        <thead>
+          <tr>
+            <th style="text-align:left;padding:8px 10px;font-weight:500;color:#666;font-size:var(--fs-xs);border-bottom:1px solid #e0e0e0;background:#fafaf8;position:sticky;left:0">
+              Parâmetro
+            </th>
+            ${dateHeaders}
+          </tr>
+        </thead>
+        <tbody>${groupsHTML}</tbody>
+      </table>
+    </div>`;
 }
 
 // Path da silhueta anatômica (svgrepo)
