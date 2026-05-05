@@ -98,8 +98,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .btn-primary:hover{opacity:.85}
 
 /* ── UPLOAD ──────────────────────────────────────────────────────────── */
-.upload-zone{border:1.5px dashed rgba(0,0,0,0.15);border-radius:10px;padding:2rem;text-align:center;cursor:pointer;background:var(--c-hover);transition:border-color .15s}
+.upload-zone{border:1.5px dashed rgba(0,0,0,0.15);border-radius:10px;padding:2rem;text-align:center;cursor:pointer;background:var(--c-hover);transition:border-color .15s,background .15s}
 .upload-zone:hover{border-color:rgba(0,0,0,0.3)}
+.upload-zone.dragover{border-color:#1a6fa8;border-width:2px;background:#f0f4ff}
 
 /* ── TABELA GENÉRICA (histórico, segmentos) ─────────────────────────── */
 .table-wrap{overflow-x:auto;margin:0 -0.5rem}
@@ -1298,12 +1299,10 @@ function renderEvolution() {
   const chartCards = ms.length >= 2 ? `
     <div class="card">
       <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px;margin-bottom:12px">
-        <div class="card-title" style="margin:0">Evolução temporal <small>${ms.length} medições · passe o mouse nos pontos</small></div>
+        <div class="card-title" style="margin:0">Evolução temporal <small>${ms.length} medições · clique nos chips para mostrar/ocultar</small></div>
       </div>
       <div id="evo-chips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px"></div>
-      <div style="position:relative;height:360px">
-        <canvas id="ch-evolution"></canvas>
-      </div>
+      <div id="evo-charts-grid" class="grid grid-2" style="gap:16px"></div>
       <div style="margin-top:12px;padding-top:12px;border-top:0.5px solid rgba(0,0,0,0.08);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
         <div id="evo-caption" style="font-size:var(--fs-xs);color:#999"></div>
         <div id="evo-legend-mfr" style="display:flex;gap:12px;font-size:var(--fs-xs);color:#666"></div>
@@ -1585,125 +1584,133 @@ function renderEvolutionChart(ms, patient) {
     captionEl.textContent = refNote + '. Clique nos chips para alternar séries.';
   }
 
-  // Monta datasets
+  // Monta dados base
   const labels = ms.map(m => fmtDateBR(m.measured_at));
   const sources = ms.map(manufacturerOf);
-  const makePointStyle = () => sources.map(s => s === 'inbody' ? 'rect' : 'circle');
+  const pointStyles = sources.map(s => s === 'inbody' ? 'rect' : 'circle');
 
+  // Filtra só séries ativas COM dados
   const activeSeries = EVO_SERIES.filter(s => evoVisible[s.key] && ms.some(m => s.getter(m) != null));
 
-  const datasets = activeSeries.map(s => ({
-    label: `${s.label}${s.unit ? ' (' + s.unit + ')' : ''}`,
-    data: ms.map(s.getter),
-    borderColor: s.color,
-    backgroundColor: s.color + '15',
-    yAxisID: s.axis,
-    tension: 0.3,
-    borderWidth: 2,
-    pointRadius: 5,
-    pointHoverRadius: 8,
-    pointStyle: makePointStyle(),
-    pointBackgroundColor: s.color,
-    pointBorderColor: '#fff',
-    pointBorderWidth: 2,
-    spanGaps: true,
-    _seriesKey: s.key,
-    _unit: s.unit,
-  }));
+  // Monta o grid com um card-mini para cada série ativa
+  const grid = document.getElementById('evo-charts-grid');
+  if (!grid) return;
 
-  // Plugin de faixas de referência (apenas para séries ativas com faixa definida)
-  const refBandPlugin = {
-    id: 'refBands',
-    beforeDatasetsDraw(chart) {
-      const { ctx, chartArea, scales } = chart;
-      activeSeries.forEach(s => {
-        const band = s.getRefBand(patient);
-        if (!band) return;
-        const scale = scales[s.axis];
+  // Limpa charts anteriores
+  EVO_SERIES.forEach(s => {
+    const id = 'ch-evo-' + s.key;
+    if (charts[id]) {
+      charts[id].destroy();
+      delete charts[id];
+    }
+  });
+
+  if (activeSeries.length === 0) {
+    grid.innerHTML = `<div style="grid-column:1/-1;text-align:center;color:#bbb;padding:2rem">
+      Nenhuma série ativa. Clique nos chips acima para mostrar gráficos.
+    </div>`;
+    return;
+  }
+
+  // Renderiza placeholders para cada série (canvas individual)
+  grid.innerHTML = activeSeries.map(s => `
+    <div style="border:0.5px solid var(--c-border);border-radius:10px;padding:1rem 1.25rem;background:var(--c-card)">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px">
+        <div style="font-size:var(--fs-sm);font-weight:500;color:#1a1a18">
+          <span style="color:${s.color};margin-right:4px">●</span> ${s.label}${s.unit ? ' (' + s.unit + ')' : ''}
+        </div>
+      </div>
+      <div style="position:relative;height:180px">
+        <canvas id="ch-evo-${s.key}"></canvas>
+      </div>
+    </div>
+  `).join('');
+
+  // Cria um chart para cada série
+  activeSeries.forEach(s => {
+    const canvas = document.getElementById('ch-evo-' + s.key);
+    if (!canvas) return;
+
+    const data = ms.map(s.getter);
+
+    // Plugin individual de faixa de referência para esta série
+    const refBand = s.getRefBand(patient);
+    const refBandPlugin = refBand ? {
+      id: 'refBand_' + s.key,
+      beforeDatasetsDraw(chart) {
+        const { ctx, chartArea, scales } = chart;
+        const scale = scales.y;
         if (!scale) return;
-
-        const yTop = scale.getPixelForValue(band.max);
-        const yBot = scale.getPixelForValue(band.min);
+        const yTop = scale.getPixelForValue(refBand.max);
+        const yBot = scale.getPixelForValue(refBand.min);
         const [top, bot] = yTop < yBot ? [yTop, yBot] : [yBot, yTop];
-
-        // Clip to chart area
         const y1 = Math.max(top, chartArea.top);
         const y2 = Math.min(bot, chartArea.bottom);
         if (y2 <= y1) return;
-
-        // Faixa de fundo na cor da série (muito leve)
-        ctx.fillStyle = s.color + '0d';  // ~5% alpha
+        ctx.fillStyle = s.color + '15';
         ctx.fillRect(chartArea.left, y1, chartArea.right - chartArea.left, y2 - y1);
-      });
-    }
-  };
+      }
+    } : null;
 
-  // Cria/recria o chart
-  const canvas = document.getElementById('ch-evolution');
-  if (!canvas) return;
-
-  if (charts['ch-evolution']) {
-    charts['ch-evolution'].destroy();
-  }
-
-  // Quais eixos estão em uso?
-  const usedAxes = new Set(activeSeries.map(s => s.axis));
-  const scales = {
-    x: { grid: { display: false }, ticks: { font: { size: 11 }, color: '#999' } },
-  };
-  if (usedAxes.has('yLeft')) {
-    scales.yLeft = {
-      type: 'linear', position: 'left',
-      grid: { color: '#f0f0f0' },
-      ticks: { font: { size: 11 }, color: '#999' },
-      title: { display: true, text: activeSeries.find(s => s.axis === 'yLeft')?.unit || '', font: { size: 11 }, color: '#999' }
-    };
-  }
-  if (usedAxes.has('yRight')) {
-    scales.yRight = {
-      type: 'linear', position: 'right',
-      grid: { display: false },
-      ticks: { font: { size: 11 }, color: '#999' },
-      title: { display: true, text: '%', font: { size: 11 }, color: '#999' }
-    };
-  }
-
-  charts['ch-evolution'] = new Chart(canvas, {
-    type: 'line',
-    data: { labels, datasets },
-    plugins: [refBandPlugin],
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      interaction: { mode: 'index', intersect: false },
-      plugins: {
-        legend: { display: false },
-        tooltip: {
-          backgroundColor: 'rgba(26,26,24,0.96)',
-          titleColor: '#fff', bodyColor: '#fff', padding: 10,
-          titleFont: { size: 12, weight: '500' },
-          bodyFont: { size: 13 },
-          cornerRadius: 6, displayColors: true, boxPadding: 4,
-          callbacks: {
-            afterTitle: (items) => {
-              const i = items[0].dataIndex;
-              const src = sources[i];
-              if (src === 'tanita') return '● Tanita';
-              if (src === 'inbody') return '■ InBody';
-              if (src === 'manual') return 'Entrada manual';
-              return '';
-            },
-            label: (ctx) => {
-              const ds = ctx.dataset;
-              const v = ctx.parsed.y;
-              if (v == null) return null;
-              const decimals = ds._unit === 'kcal' || ds._seriesKey === 'meta' ? 0 : ds._seriesKey === 'muscle' ? 2 : 1;
-              return `${ds.label}: ${v.toFixed(decimals)}`;
+    charts['ch-evo-' + s.key] = new Chart(canvas, {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [{
+          label: s.label,
+          data,
+          borderColor: s.color,
+          backgroundColor: s.color + '15',
+          tension: 0.3,
+          borderWidth: 2,
+          pointRadius: 4,
+          pointHoverRadius: 7,
+          pointStyle: pointStyles,
+          pointBackgroundColor: s.color,
+          pointBorderColor: '#fff',
+          pointBorderWidth: 1.5,
+          spanGaps: true,
+          fill: false,
+          _seriesKey: s.key,
+          _unit: s.unit,
+        }]
+      },
+      plugins: refBandPlugin ? [refBandPlugin] : [],
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: 'rgba(26,26,24,0.96)',
+            titleColor: '#fff', bodyColor: '#fff', padding: 10,
+            titleFont: { size: 12, weight: '500' },
+            bodyFont: { size: 13 },
+            cornerRadius: 6, displayColors: false, boxPadding: 4,
+            callbacks: {
+              afterTitle: (items) => {
+                const i = items[0].dataIndex;
+                const src = sources[i];
+                if (src === 'tanita') return '● Tanita';
+                if (src === 'inbody') return '■ InBody';
+                if (src === 'manual') return 'Entrada manual';
+                return '';
+              },
+              label: (ctx) => {
+                const v = ctx.parsed.y;
+                if (v == null) return null;
+                const decimals = s.unit === 'kcal' || s.key === 'meta' ? 0 : s.key === 'muscle' ? 2 : 1;
+                return `${v.toFixed(decimals)}${s.unit ? ' ' + s.unit : ''}`;
+              }
             }
           }
+        },
+        scales: {
+          x: { grid: { display: false }, ticks: { font: { size: 10 }, color: '#999', maxRotation: 0, autoSkipPadding: 12 } },
+          y: { grid: { color: '#f0f0f0' }, ticks: { font: { size: 10 }, color: '#999' } }
         }
-      },
-      scales
-    }
+      }
+    });
   });
 }
 
@@ -2104,26 +2111,24 @@ function renderUpload() {
 
       <div class="card">
         <div class="card-title">Importar medição</div>
-        <div class="grid grid-3" style="gap:12px">
-          <div class="upload-zone" onclick="openCSVPicker()" style="padding:1.5rem">
-            <div style="font-size:20px;margin-bottom:.4rem">📄</div>
-            <div style="font-size:var(--fs-sm);font-weight:500;color:#1a1a18">Arquivo CSV</div>
-            <div style="font-size:var(--fs-xs);color:#999;margin-top:3px">Tanita BC-780, 545N, MC-780MA</div>
+        <div id="upload-dropzone" class="upload-zone"
+          onclick="openUniversalPicker()"
+          ondragover="handleDragOver(event)"
+          ondragleave="handleDragLeave(event)"
+          ondrop="handleDrop(event)"
+          style="padding:3rem 2rem;text-align:center">
+          <div style="font-size:42px;margin-bottom:.6rem">📥</div>
+          <div style="font-size:var(--fs-base);font-weight:500;color:#1a1a18;margin-bottom:6px">
+            Arraste arquivos aqui ou <span style="color:#1a6fa8;text-decoration:underline">clique para selecionar</span>
           </div>
-          <div class="upload-zone" onclick="openFilePicker()" style="padding:1.5rem">
-            <div style="font-size:20px;margin-bottom:.4rem">📑</div>
-            <div style="font-size:var(--fs-sm);font-weight:500;color:#1a1a18">PDF ou imagem</div>
-            <div style="font-size:var(--fs-xs);color:#999;margin-top:3px">Um arquivo · PDF, JPG, PNG, HEIC</div>
+          <div style="font-size:var(--fs-sm);color:#666;margin-bottom:10px">
+            Aceita CSV (Tanita), PDF e imagens (JPG, PNG, HEIC) — múltiplos arquivos
           </div>
-          <div class="upload-zone" onclick="openBatchPicker()" style="padding:1.5rem">
-            <div style="font-size:20px;margin-bottom:.4rem">📚</div>
-            <div style="font-size:var(--fs-sm);font-weight:500;color:#1a1a18">Múltiplos arquivos</div>
-            <div style="font-size:var(--fs-xs);color:#999;margin-top:3px">Até 20 arquivos · PDF, JPG, PNG, HEIC</div>
+          <div style="font-size:var(--fs-xs);color:#999">
+            O sistema detecta automaticamente o tipo de cada arquivo.
           </div>
         </div>
-        <input type="file" id="csvfile" accept=".csv" style="display:none" onchange="uploadCSV(this)">
-        <input type="file" id="filefile" accept="application/pdf,image/*,.heic,.heif" style="display:none" onchange="uploadFile(this)">
-        <input type="file" id="batchfile" accept="application/pdf,image/*,.heic,.heif" multiple style="display:none" onchange="uploadBatch(this)">
+        <input type="file" id="universal-file" accept=".csv,application/pdf,image/*,.heic,.heif" multiple style="display:none" onchange="handleUniversalFiles(this.files)">
         <div id="upload-result"></div>
       </div>
 
@@ -2266,7 +2271,219 @@ async function deleteMeasurement(pid, mid, dateStr) {
   }
 }
 
-function openCSVPicker() {
+// ── UPLOAD UNIVERSAL (drag & drop + auto-detecção) ────────────────────────
+
+function openUniversalPicker() {
+  const result = document.getElementById('upload-result');
+  if (!window._uploadPid) {
+    result.innerHTML = '<div class="error-box">Selecione um paciente antes de importar.</div>';
+    return;
+  }
+  result.innerHTML = '';
+  document.getElementById('universal-file').click();
+}
+
+function handleDragOver(e) {
+  e.preventDefault();
+  e.stopPropagation();
+  document.getElementById('upload-dropzone').classList.add('dragover');
+}
+
+function handleDragLeave(e) {
+  e.preventDefault();
+  e.stopPropagation();
+  document.getElementById('upload-dropzone').classList.remove('dragover');
+}
+
+function handleDrop(e) {
+  e.preventDefault();
+  e.stopPropagation();
+  document.getElementById('upload-dropzone').classList.remove('dragover');
+
+  const result = document.getElementById('upload-result');
+  if (!window._uploadPid) {
+    result.innerHTML = '<div class="error-box">Selecione um paciente antes de importar.</div>';
+    return;
+  }
+
+  const files = e.dataTransfer.files;
+  if (files && files.length) {
+    handleUniversalFiles(files);
+  }
+}
+
+// Detecta se um arquivo é CSV pelo nome ou tipo MIME
+function isCSVFile(file) {
+  if (file.type === 'text/csv') return true;
+  if (/\.csv$/i.test(file.name)) return true;
+  return false;
+}
+
+async function handleUniversalFiles(fileList) {
+  const files = Array.from(fileList || []);
+  if (!files.length) return;
+
+  const pid = window._uploadPid;
+  const result = document.getElementById('upload-result');
+
+  // Limita 20 arquivos por vez
+  if (files.length > 20) {
+    alert(`Máximo 20 arquivos por vez (você selecionou ${files.length}).`);
+    document.getElementById('universal-file').value = '';
+    return;
+  }
+
+  // Separa CSVs de PDFs/imagens
+  const csvs = files.filter(isCSVFile);
+  const aiFiles = files.filter(f => !isCSVFile(f));
+
+  document.getElementById('universal-file').value = '';
+
+  // Caso 1: só 1 arquivo CSV → fluxo CSV simples (sem batch)
+  if (csvs.length === 1 && aiFiles.length === 0) {
+    await processSingleCSV(csvs[0], pid);
+    return;
+  }
+
+  // Caso 2: só 1 arquivo PDF/imagem → fluxo single com preview editável
+  if (aiFiles.length === 1 && csvs.length === 0) {
+    await processSingleAIFile(aiFiles[0], pid);
+    return;
+  }
+
+  // Caso 3: múltiplos arquivos (CSVs e/ou PDF/imagens) → fluxo batch
+  await processBatchMixed(csvs, aiFiles, pid);
+}
+
+// CSV único: simula o fluxo do uploadCSV antigo
+async function processSingleCSV(file, pid) {
+  const result = document.getElementById('upload-result');
+  result.innerHTML = `<div style="color:#999;font-size:var(--fs-sm);margin-top:.5rem">Processando CSV...</div>`;
+
+  const form = new FormData();
+  form.append('csv', file);
+  const data = await api('POST', `/bioscan/patients/${pid}/import-csv`, form, true);
+  if (!data) return;
+  if (data.error) {
+    result.innerHTML = `<div class="error-box">${data.error}</div>`;
+    return;
+  }
+  result.innerHTML = `<div class="success-box">✓ ${data.inserted} medição(ões) importada(s) do CSV${data.skipped ? `, ${data.skipped} duplicata(s) ignorada(s)` : ''}.</div>`;
+  await loadPatientMeasurements(pid);
+}
+
+// PDF/imagem único: simula o fluxo do uploadFile antigo (preview editável)
+async function processSingleAIFile(file, pid) {
+  const result = document.getElementById('upload-result');
+  const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
+  const typeLabel = isPdf ? 'PDF' : 'imagem';
+
+  result.innerHTML = `<div style="color:#999;font-size:var(--fs-sm);margin-top:.5rem">
+    Processando ${typeLabel} com IA... isso pode levar 10-20 segundos.
+  </div>`;
+
+  const form = new FormData();
+  form.append('file', file);
+  const data = await api('POST', `/bioscan/patients/${pid}/parse-file`, form, true);
+  if (!data) return;
+  if (data.error) {
+    let msg = data.error;
+    if (data.detected_name) msg += `<br><small>Nome detectado: <strong>${data.detected_name}</strong></small>`;
+    result.innerHTML = `<div class="error-box">${msg}</div>`;
+    return;
+  }
+
+  const patient = await api('GET', `/bioscan/patients/${pid}`);
+  if (!patient) return;
+  openImportPreview(patient, data);
+}
+
+// Múltiplos arquivos (CSVs + AI files): processa tudo em batch
+async function processBatchMixed(csvs, aiFiles, pid) {
+  batchPid = pid;
+
+  // Inicializa lista
+  batchResults = [];
+
+  // CSVs primeiro (mais rápidos, processados no servidor)
+  csvs.forEach(f => batchResults.push({
+    file: f, filename: f.name, kind: 'csv',
+    status: 'pending', data: null, error: null,
+  }));
+
+  // Depois PDFs/imagens
+  aiFiles.forEach(f => batchResults.push({
+    file: f, filename: f.name, kind: 'ai',
+    status: 'pending', data: null, error: null,
+  }));
+
+  batchResults.forEach((r, i) => r.idx = i);
+
+  renderBatchScreen(batchResults);
+  renderBatchList();
+
+  // Processa CSVs (rápido, salva direto — não tem preview)
+  for (const r of batchResults) {
+    if (r.kind !== 'csv') continue;
+    r.status = 'processing';
+    renderBatchList();
+
+    try {
+      const form = new FormData();
+      form.append('csv', r.file);
+      const data = await api('POST', `/bioscan/patients/${pid}/import-csv`, form, true);
+      if (data && !data.error) {
+        r.status = 'csv_done';
+        r.data = data;
+      } else {
+        r.status = 'error';
+        r.error = data?.error || 'Erro ao processar CSV';
+      }
+    } catch (e) {
+      r.status = 'error';
+      r.error = e.message || 'Erro desconhecido';
+    }
+    renderBatchList();
+  }
+
+  // Processa PDFs/imagens (extrai sem salvar — usuário revisa depois)
+  for (const r of batchResults) {
+    if (r.kind !== 'ai') continue;
+    r.status = 'processing';
+    renderBatchList();
+
+    try {
+      const form = new FormData();
+      form.append('file', r.file);
+      const data = await api('POST', `/bioscan/patients/${pid}/parse-file`, form, true);
+      if (data && data.error) {
+        r.status = 'error';
+        r.error = data.error;
+      } else if (data) {
+        r.status = data.duplicate_warning ? 'duplicate' : 'ok';
+        r.data = data;
+      } else {
+        r.status = 'error';
+        r.error = 'Sem resposta da API';
+      }
+    } catch (e) {
+      r.status = 'error';
+      r.error = e.message || 'Erro desconhecido';
+    }
+    renderBatchList();
+  }
+
+  renderBatchSummary();
+
+  // Recarrega a lista de medições — para mostrar os CSVs já salvos
+  if (csvs.length > 0) {
+    await loadPatientMeasurements(pid);
+  }
+}
+
+// ── ANTIGOS PICKERS (mantidos para compatibilidade interna) ───────────────
+
+
   const result = document.getElementById('upload-result');
   if (!window._uploadPid) {
     result.innerHTML = '<div class="error-box">Selecione um paciente antes de importar o arquivo.</div>';
@@ -2452,6 +2669,8 @@ function renderBatchList() {
       case 'pending':    return '<span style="color:#bbb">Aguardando…</span>';
       case 'processing': return '<span style="color:#1a6fa8">⏳ Processando…</span>';
       case 'ok':         return '<span class="badge ok">✓ Pronto</span>';
+      case 'csv_done':   return '<span class="badge ok">✓ CSV salvo</span>';
+      case 'saved':      return '<span class="badge ok">✓ Salvo</span>';
       case 'error':      return '<span class="badge alert">✕ Erro</span>';
       case 'duplicate':  return '<span class="badge warn">⚠ Duplicata</span>';
     }
@@ -2467,6 +2686,13 @@ function renderBatchList() {
       if (d.fat_pct) parts.push(`${d.fat_pct.toFixed(1)}% gordura`);
       return `<div style="font-size:var(--fs-xs);color:#666;margin-top:3px">${parts.join(' · ')}</div>`;
     }
+    if (r.status === 'csv_done') {
+      const d = r.data || {};
+      const parts = [];
+      if (d.inserted) parts.push(`${d.inserted} inserida(s)`);
+      if (d.skipped) parts.push(`${d.skipped} duplicata(s) ignorada(s)`);
+      return `<div style="font-size:var(--fs-xs);color:#27500a;margin-top:3px">${parts.join(' · ') || 'Salvo no banco'}</div>`;
+    }
     if (r.status === 'error') {
       return `<div style="font-size:var(--fs-xs);color:#c0392b;margin-top:3px">${r.error}</div>`;
     }
@@ -2479,7 +2705,7 @@ function renderBatchList() {
   list.innerHTML = batchResults.map((r, idx) => `
     <div style="display:flex;justify-content:space-between;align-items:center;padding:12px;border-bottom:0.5px solid #f0f0f0;gap:8px">
       <div style="flex:1;min-width:0">
-        <div style="font-size:var(--fs-sm);font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.filename}</div>
+        <div style="font-size:var(--fs-sm);font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.filename}${r.kind === 'csv' ? ' <small style="color:#999">CSV</small>' : ''}</div>
         ${infoLine(r)}
       </div>
       <div style="text-align:right;white-space:nowrap;display:flex;gap:6px;align-items:center">
@@ -2487,7 +2713,7 @@ function renderBatchList() {
         ${(r.status === 'ok' || r.status === 'duplicate')
           ? `<button class="btn" style="padding:3px 8px;font-size:var(--fs-xs)" onclick="reviewBatchItem(${idx})">Revisar</button>`
           : ''}
-        ${(r.status !== 'processing')
+        ${(r.status !== 'processing' && r.status !== 'csv_done' && r.status !== 'saved')
           ? `<button class="btn" style="padding:3px 8px;font-size:var(--fs-xs);color:#c0392b" onclick="removeBatchItem(${idx})" title="Remover da lista">✕</button>`
           : ''}
       </div>
