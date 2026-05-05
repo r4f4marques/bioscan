@@ -2111,23 +2111,50 @@ function renderUpload() {
 
       <div class="card">
         <div class="card-title">Importar medição</div>
+
+        <!-- Área principal: drag & drop universal -->
         <div id="upload-dropzone" class="upload-zone"
           onclick="openUniversalPicker()"
           ondragover="handleDragOver(event)"
           ondragleave="handleDragLeave(event)"
           ondrop="handleDrop(event)"
-          style="padding:3rem 2rem;text-align:center">
-          <div style="font-size:42px;margin-bottom:.6rem">📥</div>
+          style="padding:2.5rem 2rem;text-align:center;margin-bottom:14px">
+          <div style="font-size:36px;margin-bottom:.5rem">📥</div>
           <div style="font-size:var(--fs-base);font-weight:500;color:#1a1a18;margin-bottom:6px">
             Arraste arquivos aqui ou <span style="color:#1a6fa8;text-decoration:underline">clique para selecionar</span>
           </div>
-          <div style="font-size:var(--fs-sm);color:#666;margin-bottom:10px">
-            Aceita CSV (Tanita), PDF e imagens (JPG, PNG, HEIC) — múltiplos arquivos
-          </div>
-          <div style="font-size:var(--fs-xs);color:#999">
-            O sistema detecta automaticamente o tipo de cada arquivo.
+          <div style="font-size:var(--fs-sm);color:#666">
+            CSV, PDF, JPG, PNG · um ou vários arquivos · detecção automática
           </div>
         </div>
+
+        <!-- Opções específicas (alternativa para quem prefere clicar em zona específica) -->
+        <details style="margin-bottom:8px">
+          <summary style="cursor:pointer;font-size:var(--fs-xs);color:#999;padding:4px 0">
+            ▸ Outras opções de importação
+          </summary>
+          <div class="grid grid-3" style="gap:12px;margin-top:10px">
+            <div class="upload-zone" onclick="openCSVPicker()" style="padding:1.5rem">
+              <div style="font-size:20px;margin-bottom:.4rem">📄</div>
+              <div style="font-size:var(--fs-sm);font-weight:500;color:#1a1a18">Arquivo CSV</div>
+              <div style="font-size:var(--fs-xs);color:#999;margin-top:3px">Tanita BC-780, 545N, MC-780MA</div>
+            </div>
+            <div class="upload-zone" onclick="openFilePicker()" style="padding:1.5rem">
+              <div style="font-size:20px;margin-bottom:.4rem">📑</div>
+              <div style="font-size:var(--fs-sm);font-weight:500;color:#1a1a18">PDF ou imagem</div>
+              <div style="font-size:var(--fs-xs);color:#999;margin-top:3px">Um arquivo · PDF, JPG, PNG, HEIC</div>
+            </div>
+            <div class="upload-zone" onclick="openBatchPicker()" style="padding:1.5rem">
+              <div style="font-size:20px;margin-bottom:.4rem">📚</div>
+              <div style="font-size:var(--fs-sm);font-weight:500;color:#1a1a18">Múltiplos arquivos</div>
+              <div style="font-size:var(--fs-xs);color:#999;margin-top:3px">Até 20 arquivos · PDF, JPG, PNG, HEIC</div>
+            </div>
+          </div>
+        </details>
+
+        <input type="file" id="csvfile" accept=".csv" style="display:none" onchange="uploadCSV(this)">
+        <input type="file" id="filefile" accept="application/pdf,image/*,.heic,.heif" style="display:none" onchange="uploadFile(this)">
+        <input type="file" id="batchfile" accept="application/pdf,image/*,.heic,.heif" multiple style="display:none" onchange="uploadBatch(this)">
         <input type="file" id="universal-file" accept=".csv,application/pdf,image/*,.heic,.heif" multiple style="display:none" onchange="handleUniversalFiles(this.files)">
         <div id="upload-result"></div>
       </div>
