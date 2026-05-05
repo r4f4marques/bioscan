@@ -2483,7 +2483,7 @@ async function processBatchMixed(csvs, aiFiles, pid) {
 
 // ── ANTIGOS PICKERS (mantidos para compatibilidade interna) ───────────────
 
-
+function openCSVPicker() {
   const result = document.getElementById('upload-result');
   if (!window._uploadPid) {
     result.innerHTML = '<div class="error-box">Selecione um paciente antes de importar o arquivo.</div>';
